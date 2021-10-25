@@ -1,0 +1,27 @@
+{
+  "name": "baileys2api",
+  "version": "0.0.1",
+  "description": "Baileys restAPI",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"test\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/paulocorcino/baileys2api.git"
+  },
+  "keywords": [
+    "whatsapp",
+    "api",
+    "baileys"
+  ],
+  "author": "Paulo Corcino",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/paulocorcino/baileys2api/issues"
+  },
+  "homepage": "https://github.com/paulocorcino/baileys2api#readme",
+  "dependencies": {
+    "@adiwajshing/baileys": "^3.5.2"
+  }
+}
