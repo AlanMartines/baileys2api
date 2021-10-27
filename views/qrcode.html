@@ -1,0 +1,60 @@
+@{title('qr_code.png (350×350)')}
+	<style>
+	.topBar {
+    display: none;
+    visibility: hidden;
+		}
+
+		.container {
+			margin: 0;
+			width: 97%;
+		}
+
+		div#qrcode {
+			width: 250px;
+			height: 250px;
+			margin-top: 0;
+		}
+
+		div#qrspace {
+			background-color: #fff;
+			width: 250px;
+			height: 250px;
+			padding: 10px;
+			border-radius: 9px;
+		}
+
+	</style>
+	<div class="item">
+		<div id="qrspace">
+			<img id='loading' src="/loading.gif" style="position: absolute; margin: 50px; width: 150px;height: 150px">
+			<div id="qrcode" class="qrCode" style="background-image: url('@{model.qrcode}');"></div>
+		</div>
+	</div>
+
+	<div class="item">		
+	</div>
+	<script type="text/javascript">
+		if('@{model.qrcode}' != ''){
+			$('#loading').hide();
+		}
+		var socketConn = new WebSocket("ws://@{model.address}/qrCodeSocket/");
+		socketConn.onmessage = function (event) {
+			var message = JSON.parse(decodeURIComponent(event.data));
+		  	console.log("[WebSocket Event] - ",message);
+		  	if(message.qr){
+		   		$('#qrcode').css('background-image', 'url("'+message.qr+'")' );
+		   		$('#loading').hide();
+		  	};
+		  	if(message.connected){
+		   		$('#qrcode').css('background-image', 'url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")' );
+		   		$('#loading').hide();
+		   		alert("WhatsApp Connected!");
+		  	};
+		};
+		function orderNewQR(){
+			if(socketConn){
+				socketConn.send(encodeURIComponent(JSON.stringify({message: 'newQR'})));
+			};
+		};
+	</script>

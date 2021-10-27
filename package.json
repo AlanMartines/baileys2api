@@ -22,6 +22,15 @@
   },
   "homepage": "https://github.com/paulocorcino/baileys2api#readme",
   "dependencies": {
-    "@adiwajshing/baileys": "^3.5.2"
+    "@adiwajshing/baileys": "^3.5.2",
+	"async": "^3.2.0",
+    "download-file": "^0.1.5",
+    "minimist": ">=0.2.1",
+    "moment": "^2.29.1",
+    "request": "^2.88.2",
+    "total.js": "^3.4.8",
+    "vcards-js": "^2.10.0",
+    "dotenv": "^10.0.0",
+	"p-queue": "^6.6.2"
   }
 }

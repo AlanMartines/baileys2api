@@ -1,0 +1,10 @@
+name                            : Whats2API - Somos Chat
+author                          : João Miranda - Paulo Corcino
+version                         : 1.0.0
+client							: studio
+instance						: 1
+webhook							: 
+token							: 
+masterKey						: 
+licensekey						: 
+disableb64						: true
