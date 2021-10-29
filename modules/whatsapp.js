@@ -303,6 +303,63 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
   that.TOKEN = TOKEN_INPUT;
   that.CONNECTION = CLIENT;
 
+    /** when a chat is updated (new message, updated message, read message, deleted, pinned, presence updated etc) */
+    CLIENT.on ('chat-update', async chat => {
+      if (!chat.messages) return     
+
+      queue.add(async (a = chat, o = CLIENT) => { 
+        
+
+        const { messages } = a;
+        const m = messages.all()[0];
+        console.log(m);
+       /* MessageType,
+        Presence,
+        Mimetype */
+        //const messageType = Object.keys (a.message)[0];
+        //console.log(messageType);
+        if(m.message.conversation || m.extendedTextMessage || m.contactMessage || m.locationMessage) {
+          //text
+          that.PROCESS_MESSAGE(m);
+        } else {
+          //media
+          //console.log(o)
+          //console.log(messages);
+          const buffer = o.downloadMediaMessage({
+            key: {
+                remoteJid: m.key.remoteJid,
+                id: m.key.id
+            },
+            message: m.message
+        }) // to decrypt & use as a buffer        
+          let rname = crypto.randomBytes(Math.ceil(20 / 2)).toString('hex').slice(0, 20);
+          console.log(buffer);
+          //let filename = `${rname}.${mime.extension(message.mimetype)}`;		
+          //const savedFilename = await o.downloadAndSaveMediaMessage(a, process.cwd() + '/public/cdn/' + rname, true) // to decrypt & save to file
+          //console.log(a.key.remoteJid + " sent media, saved at: " + savedFilename)
+          //downloadAndSaveMediaMessage
+          
+        }
+       });     
+    });
+
+    /** when the connection to the phone changes */
+    CLIENT.on('connection-phone-change', state => {
+      console.log("connection-phone-change")
+      console.log("Connection State:" + state);
+    });
+
+    /** when a contact is updated */
+    CLIENT.on('contact-update', update => {      
+      console.log("contact-update")
+      console.log(update);
+    });
+    
+    /** when contacts are sent by WA */
+    /*CLIENT.on('contacts-received', u => {
+      console.log("contacts-received")
+      console.log(u);
+    });*/
 
   // CLIENT.onMessage(message => {
   //  queue.add(async () => {
@@ -412,6 +469,8 @@ WHATS_API.prototype.CONNECT = function() {
     //if have socket send
     if(WA_SOCKET)
       WA_SOCKET.send({ connected: true });
+    
+    WA_CLIENT.SETUP(baileysWA, WA_WEBHOOK, WA_TOKENKEY);
 
   });
 
@@ -430,35 +489,32 @@ WHATS_API.prototype.CONNECT = function() {
   baileysWA.on('connecting', () => {console.log('Connecting...')});
 
   baileysWA.on('close', err => { 
-    
-    switch (err.reason) {
-      case 'invalid_session':
-          delay(5000);
-          WA_CLIENT.KILL();
 
-          try{
-            fs.unlinkSync(WA_CONFIG_SESSION);
-          } catch(e){
-            //none
-          }
-          WA_CLIENT.CONNECT();        
-        break;    
-      default:
-        //console.log(baileysWA);
-        console.log(baileysWA.KEEP_ALIVE_INTERVAL_MS);
-        console.log(err); 
-        break;
-    }    
+    console.log(err); 
+
+    //if session ivalid, delete file and restart
+    if(err.reason == 'invalid_session') {
+      try{
+        fs.unlinkSync(WA_CONFIG_SESSION);
+      } catch(e){
+        //none
+      }
+    }
+
+    // reboot service 
+    if(!err.isReconnecting) {
+      WA_CLIENT.KILL();
+      delay(5000);
+      WA_CLIENT.CONNECT();        
+    }
 
   });
 
   baileysWA.connectOptions.alwaysUseTakeover = true;
   baileysWA.autoReconnect = ReconnectMode.onAllErrors;
-  baileysWA.KEEP_ALIVE_INTERVAL_MS = 60_000
   baileysWA.version = [2, 2140, 12];
-  /** The Browser we're telling the WhatsApp Web servers we are */
   baileysWA.browserDescription = ['Mac OS', 'Chrome', '94.0.4606.104'];
-//
+
   baileysWA.connect(WA_CONFIG);
 }
 
@@ -473,42 +529,5 @@ ON('ready', function(){
 
   WA_CLIENT.CONNECT();  
 
+
 });
-
-
-
-// ON('ready', function(){
-
-//   /*
-//   * Creating Connection for WhatsApp and expose conection to WA_CLIENT global var
-//   * Pay attention to instance id configured on /config file
-//   */
-//   WA_CLIENT = new WHATS_API(WA_INSTANCE);
-
-//   /*
-//   * Declare event getter for when qrcode is available from openWA-api
-//   */
-//   openWA.ev.on('qr.**', function (qrcode,sessionId) {
-//     //SETTING QRCODE AVAILABLE ON address/qrCode
-//     WA_CLIENT.SET_QRCODE(qrcode);
-//   });
-
-//   /*
-//   * Finally creating connection and start headless webBrowser
-//   * Attention to headless param
-//   */
-//   openWA.create(WA_CONFIG).then(function(client){
-
-//     //EXECUTING MODULE SETUP
-//     if(qrCodeManager){
-//       qrCodeManager.send({ connected: true });
-//     }
-
-//      //if have socket send
-//      if(WA_SOCKET)
-//         WA_SOCKET.send({ connected: true });
-
-//     WA_CLIENT.SETUP(client, WA_WEBHOOK, WA_TOKENKEY);
-//   });
-
-// });
