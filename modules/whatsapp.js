@@ -32,6 +32,7 @@ const async = require("async");
 const request = require('request');
 const moment = require('moment');
 const mime = require('mime-types');
+const { decryptMedia } = require('@open-wa/wa-decrypt');
 const { default: PQueue } = require("p-queue");
 const crypto = require('crypto');
 const queue = new PQueue({timeout: 30000, throwOnTimeout: false });
@@ -63,7 +64,7 @@ if( WA_INSTANCE == "1") {
   WA_TOKENKEY = (process.env.WA_MASTERKEY ? process.env.WA_MASTERKEY : "");
   WA_WEBHOOK = (process.env.WA_WEBHOOK ? process.env.WA_WEBHOOK : "http://127.0.0.1/");
   WA_ISDOCKER = true;
-  WA_DISABLEB64 = true;
+  //WA_DISABLEB64 = true;
 } else {
   WA_LICENCEKEY = (F.config["licensekey"] ? F.config["licensekey"] : "");
   WA_MASTERKEY = (F.config["masterKey"] ? F.config["masterKey"] : "");
@@ -138,47 +139,283 @@ var SANITIZE_ACK = function(instanceID,data){
   return JSON.stringify({
       ack: [{
         //id: data.id._serialized,
-		    id: data.id,
-        chatId: data.id.remote,
-        status: (data.ack == 1 ? 'sent' : (data.ack == 2 ? 'delivered' : 'viewed'))
+		    id: data.key.id,
+        chatId: WA_CLIENT.CONVERTOLDUID(data.key.remoteJid),        
+        status: (data.status == 2 ? 'sent' : (data.status == 3 ? 'delivered' : 'viewed'))
       }],
       instanceId: instanceID
   });
 };
 
 /*
+  Need to do work over diffrent kind of messageType 
+
+    buttonsMessage:'buttonsMessage'*
+    contactsArray:'contactsArrayMessage'*
+    extendedText:'extendedTextMessage'*
+    groupInviteMessage:'groupInviteMessage'*
+    listMessage:'listMessage'*
+    liveLocation:'liveLocationMessage'*
+    product:'productMessage'*
+*/
+var MESSAGE_TYPE = function(messageType, msg) {
+  //const messageType = Object.keys (msg.message)[0];
+  //const messageMedia = msg.message[messageType];
+
+  if(messageType == MessageType.text || messageType == MessageType.extendedText)
+    return 'chat'
+
+  if(messageType == MessageType.image)
+    return 'image';
+  
+  if(messageType == MessageType.document)
+    return 'document';
+  
+  if(messageType == MessageType.location || messageType == MessageType.liveLocation)
+    return 'location';
+  
+  if(messageType == MessageType.video)
+    return 'video';
+
+  if(messageType == MessageType.contact)
+    return 'vcard';
+
+  if(messageType == MessageType.sticker)
+    return 'sticker';
+  
+  if(messageType == MessageType.audio)
+    return msg.message[messageType].ptt == true ? 'ptt' : 'audio';
+
+  console.log("new format:" + messageType.toString());
+
+  return messageType.toString();
+}
+
+var CONTACT_INFO = async function(client, remoteJid, groupJid = null) {
+
+      if(client){
+        //console.log(client.contacts);
+        let u;
+        
+        if(client.contacts[remoteJid]) {          
+          u = {
+            formattedName: client.contacts[remoteJid].name,
+            pushName: client.contacts[remoteJid].notify,
+            profilePic: undefined,
+            shortName: client.contacts[remoteJid].short,
+            from: WA_CLIENT.CONVERTOLDUID(client.contacts[remoteJid].jid)
+          }  
+          
+          const uPic = await client.getProfilePicture(remoteJid).then( p => {
+              u.profilePic = p;
+          });
+        }
+
+        //group info work after
+        /*
+        if(groupJid != null) {
+          const response = await client.query({ json: ["query","GroupMetadata",groupJid] })
+          .then(data => data.participants.map(a => {
+            console.log(a);
+          }));
+          /*if(u && response) {
+            u.isAdmin = response.participants[u.from].isAdmin; 
+            u.isSuperAdmin= response.participants[u.from].isSuperAdmin;
+          }
+          //const i = await client.groupMetadata(remoteJid).then(data => {
+          console.log(response.participants);*/
+         // });
+          
+       // }
+
+        return u;
+
+        
+      }
+
+      /*
+      conn.chats.filter(chat => chat.jid.endsWith('g.us') ? conn.groupMetadata(chat.jid).then(data => data.participants.map(a => a.jid).find(b => b.jid == jid)) : false)
+      */
+
+     /* author: (data.isGroupMsg ? data.author : data.from),
+      senderName: fromName,
+	    senderPic: data.sender.profilePicThumbObj.eurl,  (getProfilePicture)
+      chatName: (data.isGroupMsg ? data.chat.contact.name : fromName)
+      data.sender.pushname ? data.sender.pushname : (data.sender.formattedName ? data.sender.formattedName : (data.sender.shortName ? data.sender.shortName : data.from.split('@')[0])));
+      */
+}
+
+var LOCATION_INFO = async function(mType, message, messageType) {
+  //const mType = MESSAGE_TYPE(msg);
+
+  let loc = {
+    lat: undefined,
+    lng: undefined,
+    isLive: undefined,
+    loc: undefined,
+    caption: undefined
+  };
+
+  if(mType != 'location')
+    return loc;
+
+  //const messageType = Object.keys (msg.message)[0];
+  //const messageMedia = msg.message[messageType];
+
+  loc.lat = messageMedia.degreesLatitude;
+  loc.lng = messageMedia.degreesLongitude;
+  loc.caption = (messageMedia.caption ? messageMedia.caption : undefined);
+  loc.isLive = (messageType == MessageType.liveLocation);
+  loc.loc = (messageMedia.address && messageMedia.name ? (messageMedia.name != messageMedia.address ? `${messageMedia.name}\r\n${messageMedia.address}` : `${messageMedia.address}`) : undefined);
+  
+  if(loc.loc == '')
+    loc.loc = undefined;
+
+  return loc;
+}
+
+var BODY_WA = async function(mType, m, messageType) {
+
+  let b;
+
+  if(!(mType == 'chat' || mType == 'vcard'))
+    return b;
+
+  b = (m.message.conversation ? m.message.conversation : ( messageType == MessageType.extendedText && m.message.extendedTextMessage.text ? m.message.extendedTextMessage.text : ( messageType == MessageType.contact ? m.message.contactMessage.vcard : null)));
+
+  return b;
+}
+
+var DOWNLOAD_MEDIA = async function(mType, messageMedia) {
+
+      //const mType = MESSAGE_TYPE(msg);
+
+      let download = {
+        mimetype: undefined,
+        title: undefined,
+        fileName: undefined,
+        filelink: undefined,
+        fileb64: undefined,
+        thumbnail: undefined,
+        thumbb64: undefined,
+        caption: undefined
+      };
+
+      if(!(mType == 'image' || mType == 'document' ||  mType == 'location' || mType == 'video' || mType == 'stciker' || mType == 'audio' || mType == 'ptt'))
+        return download;
+
+      //const messageType = Object.keys (msg.message)[0];
+      //const messageMedia = msg.message[messageType];
+      const rname = crypto.randomBytes(Math.ceil(20 / 2)).toString('hex').slice(0, 20);
+
+      download.mimetype = (messageMedia.mimetype ? messageMedia.mimetype : undefined);
+      download.title = (messageMedia.title ? messageMedia.title  : undefined);
+      download.fileName = (messageMedia.fileName ? messageMedia.fileName  : undefined);
+      download.caption = (messageMedia.caption ? messageMedia.caption  : undefined);
+      
+      // repair mimetype incorrect
+      if(messageMedia.mimetype == 'image/jpeg' && messageMedia.title && messageMedia.fileName)
+        messageMedia.mimetype = 'application/octet-stream';      
+
+      if(messageMedia.mimetype) {
+        const messageObj =  {      
+                                mimetype: messageMedia.mimetype,
+                                filehash: messageMedia.fileSha256,
+                                mediaKey: messageMedia.mediaKey,
+                                type: mType,
+                                size: messageMedia.fileLength,
+                                clientUrl: messageMedia.url,
+                                jpegthumbnail: messageMedia.jpegThumbnail
+                            };
+        const mediaData = await decryptMedia(messageObj).then(buffer => { 
+
+          if(download.fileName && (mime.extension(messageMedia.mimetype).toString() == 'false' || mime.extension(messageMedia.mimetype).toString() == 'bin')) {
+            if (download.fileName.indexOf('.') > -1)
+              download.filelink = `${rname}.${download.fileName.split('.').pop()}`;	
+            else
+               download.filelink = `${rname}`;
+          } else {
+            download.filelink = `${rname}.${mime.extension(messageMedia.mimetype)}`;	
+          }
+          
+          //save file in disk
+          fs.writeFile(process.cwd() + '/public/cdn/' + download.filelink, buffer, function(err) {
+            if (err) {
+              return console.log(err);
+            }
+          });
+
+          //return base 64
+          if(!WA_DISABLEB64) {
+            download.fileb64 = `data:${messageMedia.mimetype};base64,${buffer.toString(
+              'base64'
+            )}`;
+          }
+
+        }); 
+      } 
+     
+      if(Buffer.byteLength(messageMedia.jpegThumbnail) > 0) {
+          download.thumbnail = `${rname}_thum.jpg`;
+
+          fs.writeFile(process.cwd() + '/public/cdn/' + download.thumbnail, messageMedia.jpegThumbnail, function(err) {
+            if (err) {
+              return console.log(err);
+            }
+          });
+
+          //return base 64
+          if(!WA_DISABLEB64) {
+            download.thumbb64 = `data:image/jpeg;base64,${messageMedia.jpegThumbnail.toString(
+              'base64'
+            )}`;
+          }
+      }
+
+      return download;
+}
+
+/*
 * Sanitizing the type of message response i want on webhook POST request
 * you can edit this method but pay attention to documentation.
 */
-var SANITIZE_MSG = function(instanceID,data) {
+var SANITIZE_MSG = function(instanceID, data) {
 
   if(DEBUG)
 	  console.log(data);
 
-  let fromName = (data.sender.pushname ? data.sender.pushname : (data.sender.formattedName ? data.sender.formattedName : (data.sender.shortName ? data.sender.shortName : data.from.split('@')[0])));
+  // download media  
+  //console.log( WA_CLIENT.CONVERTOLDUID(WA_CLIENT.CONNECTION.user.jid));
+  //console.log(MESSAGE_TYPE(data));
+  //return;
+
+  let fromName = (data.sender.pushName ? data.sender.pushName : (data.sender.formattedName ? data.sender.formattedName : (data.sender.shortName ? data.sender.shortName : data.author.split('@')[0])));
   return JSON.stringify({
     messages: [{ 
-      id: data.id,
+      id: data.key.id,
       body: data.body,
-      filelink: data.filelink,
-      mimetype: data.mimetype,
-      fromMe: false,
-      me: data.to,
+      filelink: data.media.filelink,
+      thumb: data.media.thumbnail,
+      mimetype: data.media.mimetype,
+      fromMe: data.key.fromMe,
+      me: data.me,
       self: 0,
       isForwarded: data.isForwarded,
+      forwardingScore: data.forwardingScore,
       author: (data.isGroupMsg ? data.author : data.from),
-      time: data.t,
-      lat: data.lat,
-      lng: data.lng,
-      locIslive:  (data.lng ? (data.isLive ? data.isLive : false) : data.isLive),
-      loc: (data.loc ? data.loc : (data.comment ? data.comment : data.loc)),
-      chatId: data.chat.id,
+      time: data.messageTimestamp.low,
+      lat: data.location.lat, 
+      lng: data.location.lng, 
+      locIslive:  (data.location.lng ? (data.location.isLive ? data.location.isLive : false) : data.location.isLive), 
+      loc: data.location.loc, 
+      chatId: data.from,
       type: data.type,      
       senderName: fromName,
-	    senderPic: data.sender.profilePicThumbObj.eurl,
-      caption: (data.caption ? data.caption : null),
-      quotedMsgBody: (data.quotedMsgObj ? data.quotedMsgObj : null),	  
-      chatName: (data.isGroupMsg ? data.chat.contact.name : fromName)
+	    senderPic: data.sender.profilePic,
+      caption: (data.media.caption ? data.media.caption : (data.location.caption ? data.location.caption : null)), 
+      quotedMsgBody: (data.quotedMsgBody ? data.quotedMsgBody : null),
+      quotedMsgId: (data.quotedMsgId ? data.quotedMsgId : null),
+      chatName: (data.isGroupMsg ? data.chat.formattedName : fromName)
     }],
     instanceId: instanceID
   });
@@ -193,7 +430,7 @@ WHATS_API.prototype.PROCESS_MESSAGE = function(data){
   var SANITIZED = null;
 
    try {      
-		SANITIZED = SANITIZE_MSG(that.INSTANCE,data);
+		SANITIZED = SANITIZE_MSG(that.INSTANCE, data);
     } catch(e) {
       if (DEBUG)
         console.log(e);    
@@ -304,49 +541,92 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
   that.CONNECTION = CLIENT;
 
     /** when a chat is updated (new message, updated message, read message, deleted, pinned, presence updated etc) */
-    CLIENT.on ('chat-update', async chat => {
-      if (!chat.messages) return     
+    CLIENT.on ('chat-update', chat => {
+      if (!chat.messages) return   
 
-      queue.add(async (a = chat, o = CLIENT) => { 
+      const { messages } = chat;
+      const msg = messages.all()[0];
+
+      //console.log(chat);
+      
+      //ack message
+      if(msg.key.fromMe === true && (msg.status || msg.status == 0)){
+
+        if(msg.status == 0 || msg.key.remoteJid === CLIENT.user.jid) return;
+
+        queue.add(async (m = msg, o = CLIENT) => { 
+          that.PROCESS_ACK(msg);
+        });
+
         
+      } 
+      else 
+      {
 
-        const { messages } = a;
-        const m = messages.all()[0];
-        console.log(m);
-       /* MessageType,
-        Presence,
-        Mimetype */
-        //const messageType = Object.keys (a.message)[0];
-        //console.log(messageType);
-        if(m.message.conversation || m.extendedTextMessage || m.contactMessage || m.locationMessage) {
-          //text
-          that.PROCESS_MESSAGE(m);
-        } else {
-          //media
-          //console.log(o)
-          //console.log(messages);
-          const buffer = o.downloadMediaMessage({
-            key: {
-                remoteJid: m.key.remoteJid,
-                id: m.key.id
-            },
-            message: m.message
-        }) // to decrypt & use as a buffer        
-          let rname = crypto.randomBytes(Math.ceil(20 / 2)).toString('hex').slice(0, 20);
-          console.log(buffer);
-          //let filename = `${rname}.${mime.extension(message.mimetype)}`;		
-          //const savedFilename = await o.downloadAndSaveMediaMessage(a, process.cwd() + '/public/cdn/' + rname, true) // to decrypt & save to file
-          //console.log(a.key.remoteJid + " sent media, saved at: " + savedFilename)
-          //downloadAndSaveMediaMessage
-          
-        }
-       });     
+        //post message
+        queue.add(async (m = msg, o = CLIENT) => { 
+
+            const messageType = Object.keys (msg.message)[0];
+            const message = m.message[messageType];
+            
+            //Me
+            m.me = WA_CLIENT.CONVERTOLDUID(o.user.jid);
+            m.from = WA_CLIENT.CONVERTOLDUID(m.key.remoteJid);
+            m.author = (m.participant ? WA_CLIENT.CONVERTOLDUID(m.participant) : WA_CLIENT.CONVERTOLDUID(m.key.remoteJid));
+            m.type = MESSAGE_TYPE(messageType, m);
+            m.isGroupMsg = (m.participant ? true : false );
+
+            //forward
+            if(message.contextInfo){
+              //console.log(message.contextInfo);
+              
+              if(message.contextInfo.isForwarded) {
+                m.isForwarded = message.contextInfo.isForwarded;
+                m.forwardingScore = message.contextInfo.forwardingScore;
+              } else {
+                const messageTypeQ = Object.keys (message.contextInfo.quotedMessage)[0];
+                const mQ = {message: message.contextInfo.quotedMessage};
+                const mQType = MESSAGE_TYPE(messageTypeQ, mQ);
+                m.mentionedJid = message.contextInfo.mentionedJid;
+                m.quotedMsgId = message.contextInfo.stanzaId;
+               
+                if(mQType == 'chat') {
+                  m.quotedMsgBody = {
+                    body: await BODY_WA(mQType, mQ, messageTypeQ) 
+                  };
+                } else {
+                  m.quotedMsgBody = { body: mQType }
+                }
+              }
+              
+            }
+
+            //get media info 
+            m.media = await DOWNLOAD_MEDIA(m.type, message);
+
+            //body
+            m.body = await BODY_WA(m.type, msg, messageType);
+            
+            //get chat info            
+            m.chat = await CONTACT_INFO(o, m.key.remoteJid);
+
+            //get sender info 
+            m.sender = await CONTACT_INFO(o, (m.participant ? m.participant : m.key.remoteJid), (m.isGroupMsg ? m.key.remoteJid : null));   
+
+            //get loc info
+            m.location = await LOCATION_INFO(m.type, message, messageType);
+
+            that.PROCESS_MESSAGE(m);
+
+        });     
+      }
     });
 
     /** when the connection to the phone changes */
     CLIENT.on('connection-phone-change', state => {
-      console.log("connection-phone-change")
-      console.log("Connection State:" + state);
+      //console.log("connection-phone-change");
+      //console.log("Connection State:" + state);
+      that.PROCESS_STATE(state);
     });
 
     /** when a contact is updated */
@@ -361,79 +641,31 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
       console.log(u);
     });*/
 
-  // CLIENT.onMessage(message => {
-  //  queue.add(async () => {
-     
-  //     //CRECKING IF MESSAGE HAVE ANY MEDIA TYPE EMBED
-  //     //console.log(message);
-  //     if (message.mimetype) {
-  //       //SAVING MEDIA RECEIVED AND EXPOSE ADDRESS TO WEB
-  //       const mediaData = openWA.decryptMedia(message,uaOverride).then(function(DECRYPTED_DATA){
-  //         let rname = crypto.randomBytes(Math.ceil(20 / 2)).toString('hex').slice(0, 20);
-  //         var filename = `${rname}.${mime.extension(message.mimetype)}`;		
-  //         fs.writeFile(process.cwd()+'/public/cdn/'+filename, Buffer.from(DECRYPTED_DATA, 'base64'), 'base64', function(err) {
-  //           if(err){
-  //             console.log("#Error on saving file");
-  //             message['body'] = `data:${message.mimetype};base64,${message['body']}`;
-  //             that.PROCESS_MESSAGE(message);           
-  //           } else {
-  //             if(!WA_DISABLEB64) {
-  //               //if mode docker false, continue using old way
-  //               message['filelink'] = filename;
-
-  //               console.log()
-
-  //               var r = fs.readFile(process.cwd() + '/public/cdn/' + filename, { encoding: 'base64' },  (e, data) => {
-  //                 if(e) { 
-  //                   console.log("#Error on saving file");
-  //                   message['body'] = `data:${message.mimetype};base64,${message['body']}`;
-  //                   that.PROCESS_MESSAGE(message);           
-  //                 } else {
-  //                   message['body'] = `data:${message.mimetype};base64,${data}`;
-  //                   that.PROCESS_MESSAGE(message);
-
-  //                     //no store file in server
-  //                   fs.unlink(process.cwd()+'/public/cdn/'+ filename, function(err)  {
-  //                     if (err) {
-  //                       //console.error(err)				
-  //                     } 
-  //                   });  
-  //                 }
-
-  //               });              
-                
-                
-
-  //           }  else {
-  //               message['body'] = "";
-  //               message['filelink'] = filename;
-  //               that.PROCESS_MESSAGE(message);
-  //           }      
-
-  //           }
-  //         });
-      
-  //       });	  
-      
-  //       /*if (DEBUG)
-  //         console.log(imageBase64); */
-
-  //     } else {
-  //       that.PROCESS_MESSAGE(message);
-  //     }
-
-  //  })
-  // });
-
-  // CLIENT.onAck(ack => {
-  //   that.PROCESS_ACK(ack);
-  // });
-
-  // CLIENT.onStateChanged(state => {
-  //   that.PROCESS_STATE(state);
-  // });
-
 };
+
+WHATS_API.prototype.CONVERTOLDUID = function(id){
+
+  var that = this;
+  if(!id) return id;
+
+  if(id.indexOf('-') !== -1)
+    return id.replace(new RegExp('s.whatsapp.net', 'g'), 'g.us');
+  else
+    return id.replace(new RegExp('s.whatsapp.net', 'g'), 'c.us');
+
+}
+
+WHATS_API.prototype.CONVERTNEWUID = function(id){
+
+  var that = this;
+  if(!id) return id;
+
+  if(id.indexOf('g.us') !== -1)
+    return id.replace(new RegExp('g.us', 'g'), 's.whatsapp.net');
+  else
+    return id.replace(new RegExp('c.us', 'g'), 's.whatsapp.net');
+
+}
 
 WHATS_API.prototype.SET_QRCODE = function(code){
   var that = this;

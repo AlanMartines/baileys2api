@@ -23,7 +23,8 @@
   "homepage": "https://github.com/paulocorcino/baileys2api#readme",
   "dependencies": {
     "@adiwajshing/baileys": "^3.5.2",
-	"async": "^3.2.0",
+    "@open-wa/wa-decrypt": "^4.3.1",
+	  "async": "^3.2.0",
     "download-file": "^0.1.5",
     "minimist": ">=0.2.1",
     "moment": "^2.29.1",
