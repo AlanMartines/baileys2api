@@ -12,6 +12,7 @@ const {
   Mimetype,
   GroupSettingChange,
   MessageOptions,
+  WAMessageKey,
   WALocationMessage,
   WA_MESSAGE_STUB_TYPES,
   KEEP_ALIVE_INTERVAL_MS,
@@ -46,6 +47,7 @@ require('dotenv').config({ path: WA_CONFIG_ENV });
 global.uaOverride = 'WhatsApp/2.16.352 Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Safari/605.1.15';
 global.WA_CLIENT = {};
 global.WA_SOCKET = null;
+global.WA_BATTERY = 100;
 /*
 * Enviroment Values
 */
@@ -64,7 +66,7 @@ if( WA_INSTANCE == "1") {
   WA_TOKENKEY = (process.env.WA_MASTERKEY ? process.env.WA_MASTERKEY : "");
   WA_WEBHOOK = (process.env.WA_WEBHOOK ? process.env.WA_WEBHOOK : "http://127.0.0.1/");
   WA_ISDOCKER = true;
-  //WA_DISABLEB64 = true;
+  WA_DISABLEB64 = true;
 } else {
   WA_LICENCEKEY = (F.config["licensekey"] ? F.config["licensekey"] : "");
   WA_MASTERKEY = (F.config["masterKey"] ? F.config["masterKey"] : "");
@@ -105,6 +107,8 @@ function hasSocket(){
   }
   return false;
 }
+
+
 
 
 /*
@@ -233,16 +237,6 @@ var CONTACT_INFO = async function(client, remoteJid, groupJid = null) {
         
       }
 
-      /*
-      conn.chats.filter(chat => chat.jid.endsWith('g.us') ? conn.groupMetadata(chat.jid).then(data => data.participants.map(a => a.jid).find(b => b.jid == jid)) : false)
-      */
-
-     /* author: (data.isGroupMsg ? data.author : data.from),
-      senderName: fromName,
-	    senderPic: data.sender.profilePicThumbObj.eurl,  (getProfilePicture)
-      chatName: (data.isGroupMsg ? data.chat.contact.name : fromName)
-      data.sender.pushname ? data.sender.pushname : (data.sender.formattedName ? data.sender.formattedName : (data.sender.shortName ? data.sender.shortName : data.from.split('@')[0])));
-      */
 }
 
 var LOCATION_INFO = async function(mType, message, messageType) {
@@ -390,10 +384,11 @@ var SANITIZE_MSG = function(instanceID, data) {
   //return;
 
   let fromName = (data.sender.pushName ? data.sender.pushName : (data.sender.formattedName ? data.sender.formattedName : (data.sender.shortName ? data.sender.shortName : data.author.split('@')[0])));
+  let cBody = (data.body ? data.body : (WA_DISABLEB64 ? (data.body ? data.body : '') : data.media.fileb64));
   return JSON.stringify({
     messages: [{ 
-      id: data.key.id,
-      body: data.body,
+      id: data.id,
+      body: cBody,
       filelink: data.media.filelink,
       thumb: data.media.thumbnail,
       mimetype: data.media.mimetype,
@@ -412,7 +407,7 @@ var SANITIZE_MSG = function(instanceID, data) {
       type: data.type,      
       senderName: fromName,
 	    senderPic: data.sender.profilePic,
-      caption: (data.media.caption ? data.media.caption : (data.location.caption ? data.location.caption : null)), 
+      caption: (data.media.caption ? data.media.caption : (data.location.caption ? data.location.caption : (data.media.title ? data.media.title : null))), 
       quotedMsgBody: (data.quotedMsgBody ? data.quotedMsgBody : null),
       quotedMsgId: (data.quotedMsgId ? data.quotedMsgId : null),
       chatName: (data.isGroupMsg ? data.chat.formattedName : fromName)
@@ -570,6 +565,7 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
             const message = m.message[messageType];
             
             //Me
+            m.id = WA_CLIENT.SETMSGID(m.key);
             m.me = WA_CLIENT.CONVERTOLDUID(o.user.jid);
             m.from = WA_CLIENT.CONVERTOLDUID(m.key.remoteJid);
             m.author = (m.participant ? WA_CLIENT.CONVERTOLDUID(m.participant) : WA_CLIENT.CONVERTOLDUID(m.key.remoteJid));
@@ -578,7 +574,7 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
 
             //forward
             if(message.contextInfo){
-              //console.log(message.contextInfo);
+              console.log(message.contextInfo);
               
               if(message.contextInfo.isForwarded) {
                 m.isForwarded = message.contextInfo.isForwarded;
@@ -588,7 +584,7 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
                 const mQ = {message: message.contextInfo.quotedMessage};
                 const mQType = MESSAGE_TYPE(messageTypeQ, mQ);
                 m.mentionedJid = message.contextInfo.mentionedJid;
-                m.quotedMsgId = message.contextInfo.stanzaId;
+                m.quotedMsgId = WA_CLIENT.SETMSGID({ id: message.contextInfo.stanzaId, remoteJid: message.contextInfo.participant, fromMe: (message.contextInfo.participant === m.me)});
                
                 if(mQType == 'chat') {
                   m.quotedMsgBody = {
@@ -634,6 +630,13 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
       console.log("contact-update")
       console.log(update);
     });
+
+    CLIENT.on ('CB:action,,battery', json => {
+      const batteryLevelStr = json[2][0][1].value
+      const batterylevel = parseInt (batteryLevelStr)
+      //console.log ("battery level: " + batterylevel + "%")
+      WA_BATTERY = batterylevel;
+  });
     
     /** when contacts are sent by WA */
     /*CLIENT.on('contacts-received', u => {
@@ -646,7 +649,7 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
 WHATS_API.prototype.CONVERTOLDUID = function(id){
 
   var that = this;
-  if(!id) return id;
+  if(!id) return;
 
   if(id.indexOf('-') !== -1)
     return id.replace(new RegExp('s.whatsapp.net', 'g'), 'g.us');
@@ -660,11 +663,54 @@ WHATS_API.prototype.CONVERTNEWUID = function(id){
   var that = this;
   if(!id) return id;
 
-  if(id.indexOf('g.us') !== -1)
-    return id.replace(new RegExp('g.us', 'g'), 's.whatsapp.net');
-  else
+  if(id.indexOf('c.us') !== -1)
     return id.replace(new RegExp('c.us', 'g'), 's.whatsapp.net');
 
+}
+
+WHATS_API.prototype.SETMSGID = function(messageKey) {
+  if(messageKey || messageKey.fromMe || messageKey.remoteJid || messageKey.id) {
+    return `${messageKey.fromMe}_${messageKey.remoteJid}_${messageKey.id}`;
+  } 
+
+    throw "Object key invalid or not exist";
+    return;
+  
+};
+
+WHATS_API.prototype.GETMSGKEY = function(msgid) {
+  try {
+        if(msgid.indexOf('_') > -1) {
+          let k = msgid.split("_");
+          return {             
+                remoteJid: k[1],
+                fromMe: (k[0] === 'true'),
+                id: k[2]                 
+            };
+        }
+  } catch(e) {
+    throw "Object key invalid or not exist";
+  }
+    return;
+}
+
+WHATS_API.prototype.GETMESSAGEBYID = async function(client, msgid) {
+
+  let msg;
+
+  if(client && msgid) {
+    const msgkey = WA_CLIENT.GETMSGKEY(msgid);
+    //console.log(msgkey); 
+    const msgInfo = await client.loadMessages(msgkey.remoteJid, 1, {fromMe: msgkey.fromMe, id: msgkey.id}, true).then( m => {
+      //console.log(m);
+      if(m.cursor != null && m.messages.length > 0)
+        msg = m.messages[0];
+    }).catch( e => {
+      return;
+    });
+  }
+
+  return msg;
 }
 
 WHATS_API.prototype.SET_QRCODE = function(code){
@@ -678,6 +724,8 @@ WHATS_API.prototype.SET_QRCODE = function(code){
 
 WHATS_API.prototype.KILL = function() {
   var that = this;
+
+  //baileysWA.close();
   baileysWA = null;
 }
 
@@ -734,11 +782,24 @@ WHATS_API.prototype.CONNECT = function() {
     }
 
     // reboot service 
-    if(!err.isReconnecting) {
-      WA_CLIENT.KILL();
-      delay(5000);
-      WA_CLIENT.CONNECT();        
-    }
+    if(err.reason !== 'intentional') {
+      if(!err.isReconnecting) {
+        WA_CLIENT.KILL();
+        delay(5000);
+        /*WA_CLIENT.CONNECT(); */
+        waConnect();       
+      }
+    } 
+
+    //reboot
+    if(err.reason === 'intentional') {
+      if(!err.isReconnecting) {
+        /*WA_CLIENT = {};
+        WA_CLIENT = new WHATS_API(WA_INSTANCE);
+        WA_CLIENT.CONNECT();*/
+        waConnect();        
+      }
+    } 
 
   });
 
@@ -754,12 +815,22 @@ module.exports = WHATS_API;
 
 ON('ready', function(){
 
-  /*
-  * Create instance Baileys
-  */
+
   WA_CLIENT = new WHATS_API(WA_INSTANCE);
 
   WA_CLIENT.CONNECT();  
 
 
 });
+/*
+function waConnect () {
+  
+  WA_CLIENT = {};
+  WA_CLIENT = new WHATS_API(WA_INSTANCE);
+  WA_CLIENT.CONNECT();  
+
+}
+
+ON('ready', function () {
+  waConnect();
+});*/

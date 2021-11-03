@@ -3,12 +3,19 @@ var fs = require('fs');
 const os = require("os");
 const { download } = require('total.js/utils');
 var request = require('request').defaults({ encoding: null });
+const {
+	MessageType,
+	MessageOptions,
+	Presence,
+	Mimetype
+  } = require('@adiwajshing/baileys');
 global.ALLOW_TYPES = ['application/pdf','image/jpeg','image/png','audio/ogg','image/gif'];
 global.default_timeout = 3000;
 global.default_timeout_2 = 6000;
 global.default_timeout_3 = 60000;
 global.download = require('download-file');
 var vCardsJS = require('vcards-js');
+const WHATS_API = require('../modules/whatsapp');
 global.qrCodeManager = null;
 const sckClient = new Map();
 
@@ -28,28 +35,28 @@ exports.install = function() {
 	* This routes provide you methods to send messages over API 
 	* Discover more over documentation at: 
 	*/
-	ROUTE('/{instance}/typing',					typing,				['post',default_timeout]);
-	ROUTE('/{instance}/sendMessage',			sendMessage,		['post',default_timeout]);
-	ROUTE('/{instance}/sendPTT',				sendPTT,			['post',default_timeout]);
-	ROUTE('/{instance}/sendFile',				sendFile,			['post',60000]);
-	ROUTE('/{instance}/sendLinkPreview',		sendLinkPreview,	['post',10000]);
-	ROUTE('/{instance}/sendLocation',			sendLocation,		['post',default_timeout]);
-	ROUTE('/{instance}/sendGiphy', 				sendGiphy,			['post',default_timeout]);
-	ROUTE('/{instance}/sendContact',			sendContact,		['post',default_timeout]);
-	ROUTE('/{instance}/sendGhostForward',		sendGhostForward,	['post',default_timeout]);
+	ROUTE('/{instance}/typing',					typing,				['post',default_timeout]); //ok
+	ROUTE('/{instance}/sendMessage',			sendMessage,		['post',default_timeout]); //ok
+	ROUTE('/{instance}/sendPTT',				sendPTT,			['post',default_timeout]); //ok
+	ROUTE('/{instance}/sendFile',				sendFile,			['post',60000]); //ok
+	ROUTE('/{instance}/sendLinkPreview',		sendLinkPreview,	['post',10000]); //parcial
+	ROUTE('/{instance}/sendLocation',			sendLocation,		['post',default_timeout]); //ok
+	ROUTE('/{instance}/sendGiphy', 				sendGiphy,			['post',default_timeout]); //ok
+	ROUTE('/{instance}/sendContact',			sendContact,		['post',default_timeout]); //ok
+	ROUTE('/{instance}/sendGhostForward',		sendGhostForward,	['post',default_timeout_2]); //ok
 	ROUTE('/{instance}/getProfilePic',			getProfilePic,		['post',default_timeout]);
-	ROUTE('/{instance}/getFile',		getFile);
+	ROUTE('/{instance}/getFile',				getFile); //ok
 	
 	/* novas rotas */
 	ROUTE('/{instance}/sendButtons',					sendButtons,				['post',default_timeout]);
 	ROUTE('/{instance}/sendImageAsSticker',				sendImageAsSticker,			['post',default_timeout]);
-	ROUTE('/{instance}/sendReplyWithMentions',			sendReplyWithMentions,		['post',default_timeout]);
+	ROUTE('/{instance}/sendReplyWithMentions',			sendReplyWithMentions,		['post',default_timeout_2]); //ok
 	ROUTE('/{instance}/sendRawWebpAsSticker',			sendRawWebpAsSticker,		['post',default_timeout]);
-	ROUTE('/{instance}/cutCache',						cutCache,					['post',default_timeout]);
-	ROUTE('/{instance}/clearAllChats',					clearAllChats,				['post',default_timeout]);
-	ROUTE('/{instance}/clearChat',						clearChat,					['post',default_timeout]);
-	ROUTE('/{instance}/checkNumberStatus',				checkNumberStatus,			['post',default_timeout]);
-	ROUTE('/{instance}/syncContacts',					syncContacts,				['post',default_timeout]);
+	//ROUTE('/{instance}/cutCache',						cutCache,					['post',default_timeout]);
+	//ROUTE('/{instance}/clearAllChats',					clearAllChats,				['post',default_timeout]);
+	//ROUTE('/{instance}/clearChat',						clearChat,					['post',default_timeout]);
+	ROUTE('/{instance}/checkNumberStatus',				checkNumberStatus,			['post',default_timeout]); //ok
+	//ROUTE('/{instance}/syncContacts',					syncContacts,				['post',default_timeout]);
 
 	/*
 	* API ROUTES - PersonalInformation
@@ -72,11 +79,11 @@ exports.install = function() {
 	* This routes provide you methods to manipulate instance
 	* Discover more over documentation at: 
 	*/
-	ROUTE('/{instance}/{masterKey}/screenCapture',			screenCapture,		[]);
-	ROUTE('/{instance}/{masterKey}/isConnected',			isConnected,		[]);
-	ROUTE('/{instance}/{masterKey}/takeOver',				takeOver,			[]);
-	ROUTE('/{instance}/{masterKey}/batteryLevel',			batteryLevel,		[]);
-	ROUTE('/{instance}/{masterKey}/deleteFile', 			deleteFile, 		['post',default_timeout]);
+	//ROUTE('/{instance}/{masterKey}/screenCapture',			screenCapture,		[]);
+	ROUTE('/{instance}/{masterKey}/isConnected',			isConnected,		[]); //ok
+	//ROUTE('/{instance}/{masterKey}/takeOver',				takeOver,			[]);
+	ROUTE('/{instance}/{masterKey}/batteryLevel',			batteryLevel,		[]); //ok
+	ROUTE('/{instance}/{masterKey}/deleteFile', 			deleteFile, 		['post',default_timeout]); //OK
 
 	/*
 	* API ROUTES - Server Routes
@@ -84,20 +91,20 @@ exports.install = function() {
 	* Discover more over documentation at: 
 	*/	
 	ROUTE('/{masterKey}/readInstance',						readInstance,		[]);
-	ROUTE('/{masterKey}/reloadServer',						reloadServer,		[60000]);
-	ROUTE('/{masterKey}/killInstance',						killInstance,		[60000]);
-	ROUTE('/{masterKey}/setWebhook',						setWebhook,			['post',default_timeout]);
-	WEBSOCKET('/{masterKey}', 								waSocket, 			['json']);
+	ROUTE('/{masterKey}/reloadServer',						reloadServer,		[60000]); //OK
+	ROUTE('/{masterKey}/killInstance',						killInstance,		[60000]); //OK
+	ROUTE('/{masterKey}/setWebhook',						setWebhook,			['post',default_timeout]); //OK
+	WEBSOCKET('/{masterKey}', 								waSocket, 			['json']); //OK
 
 };
 
 const BODY_CHECK = function(BODY){
 	return new Promise(function(resolve, reject) {
 		if (typeof BODY['chatId'] !== 'undefined') {
-			resolve({status:true, chatId: BODY['chatId'] });
+			resolve({status:true, chatId: WA_CLIENT.CONVERTNEWUID(BODY['chatId']) });
 		} else {
 			if (typeof BODY['phone'] !== 'undefined') {
-				resolve({status:true, chatId: BODY['phone']+"@c.us" });
+				resolve({status:true, chatId: BODY['phone']+"@s.whatsapp.net" });
 			} else {
 				resolve({status:false});
 			}
@@ -132,6 +139,123 @@ function is_url(str)
           return true;
         else
           return false;
+}
+
+function get_mediatype(mime, fileName, caption) {
+
+	if(!(mime))
+		return;
+
+	let out = {
+		format: undefined,
+		filename: undefined,
+		filepath: undefined, 
+		opt: undefined
+	}
+
+	if(!(fileName)){
+		fileName = (mime.split('/')[0] == 'video' || mime.split('/')[0] == 'image' ? uuidv4() + '.' + mime.split('/')[1] : uuidv4() + '.bin');
+	} else {
+		fileName = uuidv4() + '_' + fileName;
+	}
+	
+	out.filepath = require('path').resolve(process.cwd(), 'tmp/' + fileName);
+
+	//video 
+	if(mime == Mimetype.gif || mime == Mimetype.mp4 || mime.split('/')[0] == 'video') {
+
+		out.format = MessageType.video;
+		out.opt = {
+					mimetype: null, 
+					caption: (caption ? caption : ''), 
+					filename: (fileName ? fileName : undefined)
+				 };
+
+		switch (mime) {
+			case "video/gif":
+				out.opt.mimetype = Mimetype.gif;
+				break;
+		
+			default:
+				out.opt.mimetype = Mimetype.mp4;
+				break;
+		}
+
+		return out;
+	}
+
+	//image
+	if(mime == Mimetype.jpeg || mime == Mimetype.png || mime == Mimetype.webp || mime.split('/')[0] == 'image') {
+
+		out.format = MessageType.image;
+		out.opt = {
+					mimetype: null, 
+					caption: (caption ? caption : ''), 
+					filename: (fileName ? fileName : undefined)
+				 };
+
+		switch (mime) {
+			case "image/png":
+				out.opt.mimetype = Mimetype.png;
+				break;
+
+			case "image/webp":
+					out.opt.mimetype = Mimetype.webp;
+					break;		
+					
+			default:
+				out.opt.mimetype = Mimetype.jpeg;
+				break;
+		}
+
+		return out;
+	}
+
+	//audio
+	if(mime == Mimetype.ogg || mime == Mimetype.mp4Audio || mime.split('/')[0] == 'audio') {
+
+		out.format = MessageType.audio;
+		out.opt = {
+					mimetype: null, 
+					filename: (fileName ? fileName : undefined)
+				 };
+
+		switch (mime) {
+			case "audio/ogg":
+				out.opt.mimetype = Mimetype.ogg;
+				break;
+			
+			case Mimetype.ogg:
+					out.opt.mimetype = Mimetype.ogg;
+					break;
+					
+			default:
+				out.opt.mimetype = Mimetype.mp4Audio;
+				break;
+		}
+
+		return out;
+	}
+
+	//document
+	out.format = MessageType.document;
+	out.opt = {
+				mimetype: null, 
+				caption: (caption ? caption : ''), 
+				filename: (fileName ? fileName : undefined)
+	};
+
+	switch (mime) {
+		case Mimetype.pdf:
+			out.opt.mimetype = Mimetype.pdf;
+			break;
+	
+		default:
+			out.opt.mimetype = undefined;
+			break;
+	}
+
+	return out;	
 }
 
 /* update env */
@@ -220,8 +344,9 @@ function sendMessage(instance){
 						
 						//notify after send message who is the id message
 						var getId = async function() {							
-							var r = await WA_CLIENT.CONNECTION.sendText(processData.chatId, BODY['body']);							
-							self.json({status:true, id: r});
+								
+							var r = await WA_CLIENT.CONNECTION.sendMessage(processData.chatId, BODY['body'], MessageType.text);	
+							self.json({status:true, id: WA_CLIENT.SETMSGID(r.key) });
 						}						
 						getId();
 						
@@ -257,8 +382,8 @@ function sendButtons(instance){
 						
 						//notify after send message who is the id message
 						var getId = async function() {	
-							var r = await WA_CLIENT.CONNECTION.sendButtons(processData.chatId, BODY['body'], BODY['buttons'], (BODY['title'] ? BODY['title'] : ""), (BODY['footer'] ? BODY['footer'] : ""));
-							self.json({status:true, id: r});
+							//var r = await WA_CLIENT.CONNECTION.sendButtons(processData.chatId, BODY['body'], BODY['buttons'], (BODY['title'] ? BODY['title'] : ""), (BODY['footer'] ? BODY['footer'] : ""));
+							self.json({status:true, id: WA_CLIENT.SETMSGID(r.key)});
 						}		
 						
 						getId();
@@ -295,10 +420,17 @@ function sendReplyWithMentions(instance){
 						
 						//notify after send message who is the id message
 						var getId = async function() {	
-							var r = await WA_CLIENT.CONNECTION.sendReplyWithMentions(processData.chatId, BODY['body'], BODY['messageid']);
-							self.json({status:true, id: r});
-						}		
-						
+
+							const mQuote = await WA_CLIENT.GETMESSAGEBYID(WA_CLIENT.CONNECTION, BODY['messageid']);
+							if(mQuote) {
+								const mOpt = { quoted: mQuote };
+
+								let r = await WA_CLIENT.CONNECTION.sendMessage(processData.chatId, BODY['body'], MessageType.text, mOpt);	
+								self.json({status:true, id:WA_CLIENT.SETMSGID(r.key)});
+							} else {
+								self.json({status:false, err: "Message not found"});
+							}
+						}					
 						getId();
 						
 					} else {
@@ -327,20 +459,31 @@ function sendPTT(instance){
 	if(WA_CLIENT){
 		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
 			if (typeof BODY['audio'] !== 'undefined') {
-				BODY_CHECK(BODY).then(function(processData){
+				BODY_CHECK(BODY).then(function(processData){	
 					if(processData.status){
-						var download_options = {
-						    directory:F.path.private()+'audios/' ,
-						    filename: U.GUID(10)+"-"+U.GUID(10)+".ogg"
-						};
-						request.get(BODY['audio'], function (error, response, body) {
-						    if (!error && response.statusCode == 200) {
-						        data = "data:" + response.headers["content-type"] + ";base64," + Buffer.from(body).toString('base64');
-								WA_CLIENT.CONNECTION.sendFile(processData.chatId,data,'audio.ogg', (BODY['caption'] ? BODY['caption'] : ""));
+
+						if(is_url(BODY['audio'])) {
+
+							var getId = async function() {
+
+								let r = null;
+
+								r = await WA_CLIENT.CONNECTION.sendMessage(
+									processData.chatId, 
+									{ url: BODY['audio'] }, // send directly from remote url!
+									MessageType.audio, 
+									{ mimetype: Mimetype.ogg, caption: (BODY['caption'] ? BODY['caption'] : ""), filename: 'audio.ogg' }
+								)												
 								
-						    }
-						});
-						self.json({status:true, id: null});
+								self.json({status:true, id: WA_CLIENT.SETMSGID(r.key) });
+							}	
+
+							getId();
+
+						} else {
+							self.json({status:false, err: "URL not is valid!"});
+						}
+
 					} else {
 						self.json({status:false, err: "It is mandatory to inform the parameter 'chatId' or 'phone'"});
 					}
@@ -366,103 +509,79 @@ function sendFile(instance){
 	var BODY = self.body;
 	if(WA_CLIENT){
 		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-			if (typeof BODY['body'] !== 'undefined' && typeof BODY['filename'] !== 'undefined') {
+			if (typeof BODY['filename'] !== 'undefined' && typeof BODY['mimetype'] !== 'undefined' && (typeof BODY['base64'] !== 'undefined' || typeof BODY['url'] !== 'undefined')) {
 				BODY_CHECK(BODY).then(function(processData){
-					if(processData.status){
-						var download_options = {
-						    directory:F.path.private()+'files/' ,
-						    filename: BODY['filename']
-						};
-						request.get(BODY['body'], function (error, response, body) {
-						    if (!error && response.statusCode == 200) {
-						        data = "data:" + response.headers["content-type"] + ";base64," + Buffer.from(body).toString('base64');
-						        //if(ALLOW_TYPES.includes(response.headers["content-type"].split(';')[0])){
-									var getId = async function() {							
-										var r = await WA_CLIENT.CONNECTION.sendFile(processData.chatId,data,BODY['filename'], (BODY['caption'] ? BODY['caption'] : ""));
-										self.json({status:true, id: r});
-									}						
-									getId();
-						       // } else {
-							//		self.json({status:false, err: "Type of file not allowed"});
-						    //    }
-						    } else {
-								self.json({status:false, err: "Internal error to process this file - contact support now"});
-						    }
-						});
-					} else {
-						self.json({status:false, err: "It is mandatory to inform the parameter 'chatId' or 'phone'"});
-					}
-				});
-			} else if (typeof BODY['filename'] !== 'undefined' && typeof BODY['mimetype'] !== 'undefined' && (typeof BODY['base64'] !== 'undefined' || typeof BODY['url'] !== 'undefined')) {
-				BODY_CHECK(BODY).then(function(processData){
-					if(processData.status){						
-					
-						var relativePath = '';
-						
-						if (BODY['mimetype'].split('/')[0] == 'video' || BODY['mimetype'].split('/')[0] == 'image')
-							relativePath = require('path').resolve(process.cwd(), 'tmp/' + uuidv4() + '.' + BODY['mimetype'].split('/')[1]);
-						else
-							relativePath = require('path').resolve(process.cwd(), 'tmp/' + uuidv4() + '_' + BODY['filename']);
+					if(processData.status){	
+
+						let out = get_mediatype(BODY['mimetype'], BODY['filename'], BODY['caption']);
+						if(out) {
 
 							if(typeof BODY['url'] !== 'undefined') {
+								//use url
 								if(is_url(BODY['url'])) {
-								
-									download_http(BODY['url'], relativePath, (e) => {
-										if(!e) {
 
-											var getId = async function() {		
-												var r = null;
-												if (BODY['mimetype'].split('/')[0] == 'video' || BODY['mimetype'].split('/')[0] == 'image')
-												{
-													r = await WA_CLIENT.CONNECTION.sendImage(processData.chatId, relativePath, BODY['filename'], (BODY['caption'] ? BODY['caption'] : ""), null, true);
-													
-												} else {				
-													r = await WA_CLIENT.CONNECTION.sendFile(processData.chatId, relativePath, BODY['filename'], (BODY['caption'] ? BODY['caption'] : ""), null, true);
-												}
-												
-												//delete arquivo
-												if (fs.existsSync(relativePath)) {
-														fs.unlinkSync(relativePath);
-												}
+									var getId = async function() {		
+										let r = null;
 
-												self.json({status:true, id: r});
-											}	
+										try {
+											r = await WA_CLIENT.CONNECTION.sendMessage(
+												processData.chatId, 
+												{ url: BODY['url'] }, 
+												out.format, 
+												out.opt
+											);														
+										
+										self.json({status:true, id: WA_CLIENT.SETMSGID(r.key) });
 
-											getId();
+										} catch(e) {
+											console.log(e);
+											self.json({status:false, err: "Error when try upload file" });
+										}
+									}	
 
-										} else {
-											self.json({status:false, err: "Erro on download"});
-										}									
-									});															
+									getId();
 
 								} else {
 									self.json({status:false, err: "URL not is valid!"});
 								}
-
-							} else {							
-	
+							} else {						
 								//use b64 file
-								fs.writeFile(relativePath, BODY['base64'], {encoding: 'base64'}, function(err) {
+								fs.writeFile(out.filepath, BODY['base64'], {encoding: 'base64'}, function(err) {
 									var getId = async function() {		
-										var r = null;
-										if (BODY['mimetype'].split('/')[0] == 'video' || BODY['mimetype'].split('/')[0] == 'image')
-										{
-											r = await WA_CLIENT.CONNECTION.sendImage(processData.chatId, relativePath, BODY['filename'], (BODY['caption'] ? BODY['caption'] : ""), null, true);
-											//r = await WA_CLIENT.CONNECTION.sendImage(processData.chatId, relativePath, BODY['filename'], (BODY['caption'] ? BODY['caption'] : ""), null, true);
-										} else {				
-											r = await WA_CLIENT.CONNECTION.sendFile(processData.chatId, relativePath, BODY['filename'], (BODY['caption'] ? BODY['caption'] : ""), null, true);
+										let r;
+
+										try {
+
+											r = await WA_CLIENT.CONNECTION.sendMessage(
+												processData.chatId, 
+												fs.readFileSync(out.filepath), 
+												out.format, 
+												out.opt
+											);
+
+										}  catch(e) {
+											console.log(e);
+											self.json({status:false, err: "Error when try upload file" });
+										} finally {
+
+											//delete arquivo
+											if (fs.existsSync(out.filepath)) {
+												fs.unlinkSync(out.filepath);
+											}
+											
+											if(r)
+												self.json({status:true, id: WA_CLIENT.SETMSGID(r.key) });
 										}
+
 										
-										//delete arquivo
-										if (fs.existsSync(relativePath)) {
-												fs.unlinkSync(relativePath);
-										}
-						
-										self.json({status:true, id: r});
 									}						
 									getId();
-								});	
-							}	
+								});
+							}
+
+						} else {
+							self.json({status:false, err: "Format not defned"});
+						}
 
 					} else {
 						self.json({status:false, err: "It is mandatory to inform the parameter 'chatId' or 'phone'"});
@@ -470,7 +589,7 @@ function sendFile(instance){
 				});
 			} else {
 				self.json({status:false, err: "Paramether body and filename is both mandatory or mimetype and base64"});
-			}
+			}			
 		} else {
 			self.json({status:false, err: "Wrong token authentication"});
 		}
@@ -489,12 +608,13 @@ function sendLocation(instance){
 	var BODY = self.body;
 	if(WA_CLIENT){
 		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-			if (typeof BODY['lat'] !== 'undefined' && typeof BODY['lng'] !== 'undefined' && typeof BODY['address'] !== 'undefined') {
+			if (typeof BODY['lat'] !== 'undefined' && typeof BODY['lng'] !== 'undefined') {
 				BODY_CHECK(BODY).then(function(processData){
 					if(processData.status){
 						var getId = async function() {							
-							var r = await WA_CLIENT.CONNECTION.sendLocation(processData.chatId, BODY['lat'], BODY['lng'], BODY['address']);						
-							self.json({status:true, id: r});
+							
+							let r = await WA_CLIENT.CONNECTION.sendMessage(processData.chatId, {degreesLatitude: BODY['lat'], degreesLongitude: BODY['lng'], address: (BODY['address'] ? BODY['address'] : null)}, MessageType.location)					
+							self.json({status:true, id:  WA_CLIENT.SETMSGID(r.key)});
 						}						
 						getId();
 					} else {
@@ -525,11 +645,27 @@ function sendGiphy(instance){
 			if (typeof BODY['link'] !== 'undefined' && typeof BODY['caption'] !== 'undefined') {
 				BODY_CHECK(BODY).then(function(processData){
 					if(processData.status){
-						var getId = async function() {							
-							var r = await WA_CLIENT.CONNECTION.sendGiphy(processData.chatId,BODY['link'],BODY['caption']);
-							self.json({status:true, id: r});
-						}						
-						getId();
+						if(is_url(BODY['link'])) {
+
+							var getId = async function() {
+
+								let r = null;
+
+								r = await WA_CLIENT.CONNECTION.sendMessage(
+									processData.chatId, 
+									{ url: BODY['link'] }, // send directly from remote url!
+									MessageType.video, 
+									{ mimetype: Mimetype.gif, caption: (BODY['caption'] ? BODY['caption'] : "") }
+								)												
+								
+								self.json({status:true, id: WA_CLIENT.SETMSGID(r.key) });
+							}	
+
+							getId();
+
+						} else {
+							self.json({status:false, err: "URL not is valid!"});
+						}
 					} else {
 						self.json({status:false, err: "It is mandatory to inform the parameter 'chatId' or 'phone'"});
 					}
@@ -639,14 +775,14 @@ function sendContact(instance){
 						//console.log(vCard.getFormattedString());
 						//console.log(BODY['vcard']);
 						var getId = async function() {
-							 var r = null;
+							 let r = null;
 							 
 							if(BODY['vcard']) {
-								r = await WA_CLIENT.CONNECTION.sendVCard(processData.chatId,BODY['vcard'],BODY['firstName']);
+								r  = await WA_CLIENT.CONNECTION.sendMessage(processData.chatId, {displayname: BODY['firstName'], vcard: BODY['vcard']}, MessageType.contact);
 							} else {
-								r = await WA_CLIENT.CONNECTION.sendVCard(processData.chatId,vCard.getFormattedString(),BODY['firstName']);
+								r  = await WA_CLIENT.CONNECTION.sendMessage(processData.chatId, {displayname: BODY['firstName'], vcard: vCard.getFormattedString()}, MessageType.contact);								
 							}
-							self.json({status:true, id: r});
+							self.json({status:true, id: WA_CLIENT.SETMSGID(r.key)});
 						}						
 						getId();
 					} else {
@@ -692,8 +828,21 @@ function sendLinkPreview(instance){
 														processData.chatId);
 									//console.log(r);
 									self.json({status:true, id: uuidv4()});
-							}				
-							 else if(BODY['type'] == 'yt') {								
+							} else {
+									r = await WA_CLIENT.CONNECTION.sendMessage(processData.chatId, BODY['text'], MessageType.text, {
+										contextInfo: {
+										  externalAdReply: {
+											  sourceUrl: BODY['link'],
+											  mediaType: 1,
+										  }
+										}
+									  });	
+									self.json({status:true, id: WA_CLIENT.SETMSGID(r.key) });
+
+							}
+							 
+							 
+							 /*if(BODY['type'] == 'yt') {								
 									var r = null;
 									r = await WA_CLIENT.CONNECTION.sendYoutubeLink(processData.chatId,BODY['link'], BODY['text']);
 									self.json({status:true, id: r});					
@@ -705,7 +854,7 @@ function sendLinkPreview(instance){
 									r = await WA_CLIENT.CONNECTION.getMyLastMessage(processData.chatId);
 									self.json({status:true, id: r.id});																
 								
-							} 
+							} */
 						}
 
 						getId();
@@ -743,20 +892,19 @@ function sendGhostForward(instance){
 		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
 			if (typeof BODY['id'] !== 'undefined') {
 				BODY_CHECK(BODY).then(function(processData){
-					if(processData.status){				
-									
+					if(processData.status){		
+						
 						//notify after send message who is the id message
-						var getId = async function() {							
-							var r = await WA_CLIENT.CONNECTION.ghostForward(processData.chatId, BODY['id']);
-							//console.log(r);
+						var getId = async function() {	
 
-							if(r === false) {
-								self.json({status:false, err: "Message not found"});
+							const mQuote = await WA_CLIENT.GETMESSAGEBYID(WA_CLIENT.CONNECTION, BODY['id']);
+							if(mQuote) {
+								let r = await WA_CLIENT.CONNECTION.forwardMessage(processData.chatId, mQuote, false);	
+								self.json({status:true, id:WA_CLIENT.SETMSGID(r.key)});
 							} else {
-								self.json({status:true, id: r});
+								self.json({status:false, err: "Message not found"});
 							}
-							
-						}	
+						}				
 
 						getId();
 						
@@ -883,8 +1031,10 @@ function typing(instance){
 			BODY_CHECK(BODY).then(function(processData){
 				if(processData.status){
 					if(typeof BODY['state'] !== 'undefined'){
-						WA_CLIENT.CONNECTION.simulateTyping(processData.chatId,BODY['state']);
+
+						WA_CLIENT.CONNECTION.updatePresence(processData.chatId,(BODY['state'] ? Presence.composing : Presence.paused));
 						self.json({status:true});
+
 					} else {
 						self.json({status:false, err: "Parameter state is not set"});
 					}
@@ -913,8 +1063,20 @@ function checkNumberStatus(instance){
 				if(processData.status){
 					
 					var getId = async function() {
-						var r = await WA_CLIENT.CONNECTION.checkNumberStatus(processData.chatId);
-						self.json({status:true, data: r});
+						//var r = await WA_CLIENT.CONNECTION.checkNumberStatus(processData.chatId);
+						let r = await WA_CLIENT.CONNECTION.isOnWhatsApp(processData.chatId);
+						//console.log(r);
+						if(r) {
+							self.json({status:true, data: {
+								id: (r.jid ? WA_CLIENT.CONVERTOLDUID(r.jid) : null),
+								isBusiness: (r.isBusiness ? true : false),
+								numberExists: r.exists,
+								status: (r.exists ? 200 : 404),
+								canReceiveMessage: true
+							} });
+						} else {
+							self.json({status:false, err: "number not exist"});
+						}
 					}
 					getId();
 					
@@ -1069,11 +1231,14 @@ function isConnected(instance,masterKey){
 	var self = this;
 	if(WA_CLIENT){
 		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-			WA_CLIENT.CONNECTION.isConnected().then(function(response){
+			/*WA_CLIENT.CONNECTION.isConnected().then(function(response){
 				self.json({status:true, instance_status: response});
 			}).catch((err) => {
 				self.json({status:false, err: 'Internal Error - please contact support now'});
-			});
+			});*/
+			let r = WA_CLIENT.CONNECTION.phoneConnected;
+			self.json({status:true, instance_status: r});
+
 		} else {
 			self.json({status:false, err: "Wrong token authentication"});
 		}
@@ -1165,10 +1330,11 @@ function batteryLevel(instance,masterKey){
 	if(WA_CLIENT){
 		if(WA_MASTERKEY == decodeURIComponent(masterKey)){
 			if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-				WA_CLIENT.CONNECTION.getBatteryLevel().then(function(response){
-					console.log(response);
-					self.json({status:true, batteryLevel: response});
-				});
+				//WA_CLIENT.CONNECTION.getBatteryLevel().then(function(response){
+					//console.log(response);
+				//	self.json({status:true, batteryLevel: response});
+				//});
+				self.json({status:true, batteryLevel: WA_BATTERY});
 			} else {
 				self.json({status:false, err: "Wrong token authentication"});
 			}
@@ -1189,23 +1355,34 @@ async function readInstance(masterKey){
 	var self = this;
 	if(WA_CLIENT){
 		if(WA_MASTERKEY == decodeURIComponent(masterKey)){
+			//console.log(WA_CLIENT.CONNECTION);
 			try {
-				var resetState = await WA_CLIENT.CONNECTION.setPresence(true); 
-				var isConnected = await WA_CLIENT.CONNECTION.isConnected(); 
-				var battery = await WA_CLIENT.CONNECTION.getBatteryLevel();
-				var connectionState = await WA_CLIENT.CONNECTION.getConnectionState();
-				var wapiversion = await WA_CLIENT.CONNECTION.getWAVersion();
-				var me = await WA_CLIENT.CONNECTION.getMe();
+				var isConnected = await WA_CLIENT.CONNECTION.phoneConnected; 
+				var getBattery = WA_BATTERY;
+				var me = {
+					id: WA_CLIENT.INSTANCE,
+					pushname: WA_CLIENT.CONNECTION.user.name,
+					isBusiness: true,
+					status: WA_CLIENT.CONVERTOLDUID(WA_CLIENT.CONNECTION.user.jid),
+					profilePicThumb: "",
+					wid: WA_CLIENT.CONVERTOLDUID(WA_CLIENT.CONNECTION.user.jid),
+					connected: isConnected,
+					battery: getBattery,
+					phone: WA_CLIENT.CONNECTION.user.phone
+				};
+				var resetState = await WA_CLIENT.CONNECTION.updatePresence(WA_CLIENT.CONNECTION.user.jid, Presence.available); 
+				var connectionState = (isConnected ? 'CONNECTED' : 'OFF-LINE');
+				var wapiversion = "";				
 				self.json({
-					status:true,
-					resetState: resetState,
+					status: true,
+					resetState: undefined,
 					networkData: isConnected,
-					battery: battery,
+					battery: getBattery,
 					state: connectionState,
 					webhook: WA_CLIENT.WEBHOOK,
 					wapiVersion:wapiversion,
 					info: me
-				},true);
+				}, true);
 			} catch (error) {
 				self.json({status:false, err: "You don't have session enable."});
 			}
@@ -1246,15 +1423,10 @@ function setWebhook(masterKey){
 async function reloadServer(masterKey){
 	var self = this;
 	if(WA_CLIENT){
-		if(WA_MASTERKEY == decodeURIComponent(masterKey)){
-		
-				await WA_CLIENT.CONNECTION.kill();
-				await delay(5000);
-			
-
-			openWA.create(WA_CONFIG).then(function(client){
-			    WA_CLIENT.SETUP(client, WA_WEBHOOK, WA_TOKENKEY);
-			});
+		if(WA_MASTERKEY == decodeURIComponent(masterKey)){		
+				WA_CLIENT.KILL();
+				delay(8000);
+				WA_CLIENT.CONNECT();  
 			self.json({status:true});
 		} else {
 			self.json({status:false, err: "You don't have permissions to this action"});
@@ -1274,11 +1446,9 @@ async function killInstance(masterKey){
 	if(WA_CLIENT){
 		if(WA_MASTERKEY == decodeURIComponent(masterKey)){
 			
-			//console.log(WA_CLIENT, WA_CLIENT.CONNECTION);
 			
 			if(Object.keys(WA_CLIENT.CONNECTION).length !== 0){
-				await WA_CLIENT.CONNECTION.kill();
-				await delay(5000);					
+				await WA_CLIENT.KILL();							 					
 			}
 
 			var relativePath = require('path').resolve(process.cwd(), 'whatsSessions/' + WA_INSTANCE + '.data.json');
@@ -1288,11 +1458,12 @@ async function killInstance(masterKey){
 				fs.unlinkSync(relativePath);				
 			}
 			
-			openWA.create(WA_CONFIG).then(function(client){
-			    WA_CLIENT.SETUP(client, WA_WEBHOOK, WA_TOKENKEY);
-			});	
+			WA_CLIENT.CONNECT();
 
+			//setTimeout(WA_CLIENT.CONNECT(),8000);	
+			
 			self.json({status:true});
+			
 		} else {
 			self.json({status:false, err: "You don't have permissions to this action"});
 		}
