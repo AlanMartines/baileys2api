@@ -8,3 +8,4 @@ token							:
 masterKey						: 
 licensekey						: 
 disableb64						: true
+waversion                       : [2, 2142, 12]
