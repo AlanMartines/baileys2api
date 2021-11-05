@@ -1065,10 +1065,17 @@ function checkNumberStatus(instance){
 					var getId = async function() {
 						//var r = await WA_CLIENT.CONNECTION.checkNumberStatus(processData.chatId);
 						let r = await WA_CLIENT.CONNECTION.isOnWhatsApp(processData.chatId);
+						
 						//console.log(r);
 						if(r) {
+							const jid = (r.jid ? WA_CLIENT.CONVERTOLDUID(r.jid) : undefined);
+
 							self.json({status:true, data: {
-								id: (r.jid ? WA_CLIENT.CONVERTOLDUID(r.jid) : null),
+								id: {
+									server: (jid ? jid.split("@")[1] : undefined),
+									user: (jid ? jid.split("@")[0] : undefined),
+									_serialized: (jid ? jid : undefined)
+								},
 								isBusiness: (r.isBusiness ? true : false),
 								numberExists: r.exists,
 								status: (r.exists ? 200 : 404),

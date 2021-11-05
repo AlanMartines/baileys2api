@@ -33,7 +33,7 @@ const async = require("async");
 const request = require('request');
 const moment = require('moment');
 const mime = require('mime-types');
-const { decryptMedia } = require('@open-wa/wa-decrypt');
+//const { decryptMedia } = require('@open-wa/wa-decrypt');
 const { default: PQueue } = require("p-queue");
 const crypto = require('crypto');
 const queue = new PQueue({timeout: 30000, throwOnTimeout: false });
@@ -52,6 +52,7 @@ global.WA_BATTERY = 100;
 * Enviroment Values
 */
 global.WA_INSTANCE = (F.config['instance'] ? F.config['instance'].toString() : "1") ;
+global.WA_VERSION = (F.config['waversion'] ? eval(F.config['waversion']) : [2, 2142, 12]) ;
 global.WA_LICENCEKEY = "";
 global.WA_MASTERKEY = "";
 global.WA_TOKENKEY = "";
@@ -239,7 +240,7 @@ var CONTACT_INFO = async function(client, remoteJid, groupJid = null) {
 
 }
 
-var LOCATION_INFO = async function(mType, message, messageType) {
+var LOCATION_INFO = async function(mType, messageMedia, messageType) {
   //const mType = MESSAGE_TYPE(msg);
 
   let loc = {
@@ -280,7 +281,7 @@ var BODY_WA = async function(mType, m, messageType) {
   return b;
 }
 
-var DOWNLOAD_MEDIA = async function(mType, messageMedia) {
+var DOWNLOAD_MEDIA = async function(mType, msg, client) {
 
       //const mType = MESSAGE_TYPE(msg);
 
@@ -298,8 +299,8 @@ var DOWNLOAD_MEDIA = async function(mType, messageMedia) {
       if(!(mType == 'image' || mType == 'document' ||  mType == 'location' || mType == 'video' || mType == 'stciker' || mType == 'audio' || mType == 'ptt'))
         return download;
 
-      //const messageType = Object.keys (msg.message)[0];
-      //const messageMedia = msg.message[messageType];
+      const messageType = Object.keys (msg.message)[0];
+      const messageMedia = msg.message[messageType];
       const rname = crypto.randomBytes(Math.ceil(20 / 2)).toString('hex').slice(0, 20);
 
       download.mimetype = (messageMedia.mimetype ? messageMedia.mimetype : undefined);
@@ -321,7 +322,8 @@ var DOWNLOAD_MEDIA = async function(mType, messageMedia) {
                                 clientUrl: messageMedia.url,
                                 jpegthumbnail: messageMedia.jpegThumbnail
                             };
-        const mediaData = await decryptMedia(messageObj).then(buffer => { 
+
+        const mediaData = await client.downloadMediaMessage(msg).then(buffer => {
 
           if(download.fileName && (mime.extension(messageMedia.mimetype).toString() == 'false' || mime.extension(messageMedia.mimetype).toString() == 'bin')) {
             if (download.fileName.indexOf('.') > -1)
@@ -346,13 +348,21 @@ var DOWNLOAD_MEDIA = async function(mType, messageMedia) {
             )}`;
           }
 
-        }); 
-      } 
-     
-      if(Buffer.byteLength(messageMedia.jpegThumbnail) > 0) {
-          download.thumbnail = `${rname}_thum.jpg`;
+        });
 
-          fs.writeFile(process.cwd() + '/public/cdn/' + download.thumbnail, messageMedia.jpegThumbnail, function(err) {
+        /* const mediaData = await decryptMedia(messageObj).then(buffer => { 
+
+          if(download.fileName && (mime.extension(messageMedia.mimetype).toString() == 'false' || mime.extension(messageMedia.mimetype).toString() == 'bin')) {
+            if (download.fileName.indexOf('.') > -1)
+              download.filelink = `${rname}.${download.fileName.split('.').pop()}`;	
+            else
+               download.filelink = `${rname}`;
+          } else {
+            download.filelink = `${rname}.${mime.extension(messageMedia.mimetype)}`;	
+          }
+          
+          //save file in disk
+          fs.writeFile(process.cwd() + '/public/cdn/' + download.filelink, buffer, function(err) {
             if (err) {
               return console.log(err);
             }
@@ -360,10 +370,32 @@ var DOWNLOAD_MEDIA = async function(mType, messageMedia) {
 
           //return base 64
           if(!WA_DISABLEB64) {
-            download.thumbb64 = `data:image/jpeg;base64,${messageMedia.jpegThumbnail.toString(
+            download.fileb64 = `data:${messageMedia.mimetype};base64,${buffer.toString(
               'base64'
             )}`;
           }
+
+        }); */
+
+      } 
+     
+      if(messageMedia.jpegThumbnail) {
+        if(Buffer.byteLength(messageMedia.jpegThumbnail) > 0) {
+            download.thumbnail = `${rname}_thum.jpg`;
+
+            fs.writeFile(process.cwd() + '/public/cdn/' + download.thumbnail, messageMedia.jpegThumbnail, function(err) {
+              if (err) {
+                return console.log(err);
+              }
+            });
+
+            //return base 64
+            if(!WA_DISABLEB64) {
+              download.thumbb64 = `data:image/jpeg;base64,${messageMedia.jpegThumbnail.toString(
+                'base64'
+              )}`;
+            }
+        }
       }
 
       return download;
@@ -598,7 +630,7 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
             }
 
             //get media info 
-            m.media = await DOWNLOAD_MEDIA(m.type, message);
+            m.media = await DOWNLOAD_MEDIA(m.type, msg, o);
 
             //body
             m.body = await BODY_WA(m.type, msg, messageType);
@@ -666,6 +698,14 @@ WHATS_API.prototype.CONVERTNEWUID = function(id){
   if(id.indexOf('c.us') !== -1)
     return id.replace(new RegExp('c.us', 'g'), 's.whatsapp.net');
 
+}
+
+WHATS_API.prototype.DELAY = function(ms) {
+  const date = Date.now();
+  let currentDate = null;
+  do {
+    currentDate = Date.now();
+  } while (currentDate - date < ms);
 }
 
 WHATS_API.prototype.SETMSGID = function(messageKey) {
@@ -785,19 +825,17 @@ WHATS_API.prototype.CONNECT = function() {
     if(err.reason !== 'intentional') {
       if(!err.isReconnecting) {
         WA_CLIENT.KILL();
-        delay(5000);
-        /*WA_CLIENT.CONNECT(); */
-        waConnect();       
+        WA_CLIENT.DELAY(5000);
+        WA_CLIENT.CONNECT();    
       }
     } 
 
     //reboot
     if(err.reason === 'intentional') {
       if(!err.isReconnecting) {
-        /*WA_CLIENT = {};
-        WA_CLIENT = new WHATS_API(WA_INSTANCE);
-        WA_CLIENT.CONNECT();*/
-        waConnect();        
+        WA_CLIENT.KILL();
+        WA_CLIENT.DELAY(5000);
+        WA_CLIENT.CONNECT();          
       }
     } 
 
@@ -805,8 +843,8 @@ WHATS_API.prototype.CONNECT = function() {
 
   baileysWA.connectOptions.alwaysUseTakeover = true;
   baileysWA.autoReconnect = ReconnectMode.onAllErrors;
-  baileysWA.version = [2, 2140, 12];
-  baileysWA.browserDescription = ['Mac OS', 'Chrome', '94.0.4606.104'];
+  baileysWA.version = WA_VERSION;
+  baileysWA.browserDescription = ['Mac OS', 'Safari', '10.15.3'];
 
   baileysWA.connect(WA_CONFIG);
 }
@@ -814,23 +852,6 @@ WHATS_API.prototype.CONNECT = function() {
 module.exports = WHATS_API;
 
 ON('ready', function(){
-
-
   WA_CLIENT = new WHATS_API(WA_INSTANCE);
-
   WA_CLIENT.CONNECT();  
-
-
 });
-/*
-function waConnect () {
-  
-  WA_CLIENT = {};
-  WA_CLIENT = new WHATS_API(WA_INSTANCE);
-  WA_CLIENT.CONNECT();  
-
-}
-
-ON('ready', function () {
-  waConnect();
-});*/
