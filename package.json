@@ -31,6 +31,7 @@
     "total.js": "^3.4.8",
     "vcards-js": "^2.10.0",
     "dotenv": "^10.0.0",
-    "p-queue": "^6.6.2"
+    "p-queue": "^6.6.2",
+    "qrcode-base64": "^1.0.1"
   }
 }
