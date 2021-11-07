@@ -34,6 +34,7 @@ const request = require('request');
 const moment = require('moment');
 const mime = require('mime-types');
 //const { decryptMedia } = require('@open-wa/wa-decrypt');
+//const QR = require('qrcode-base64');
 const { default: PQueue } = require("p-queue");
 const crypto = require('crypto');
 const queue = new PQueue({timeout: 30000, throwOnTimeout: false });
@@ -170,17 +171,20 @@ var MESSAGE_TYPE = function(messageType, msg) {
   if(messageType == MessageType.text || messageType == MessageType.extendedText)
     return 'chat'
 
+  if(messageType.toString() === 'buttonsResponseMessage' || messageType == MessageType.buttonsMessage) 
+    return 'buttons_response'
+
   if(messageType == MessageType.image)
     return 'image';
   
   if(messageType == MessageType.document)
     return 'document';
   
-  if(messageType == MessageType.location || messageType == MessageType.liveLocation)
-    return 'location';
-  
   if(messageType == MessageType.video)
     return 'video';
+
+  if(messageType == MessageType.location || messageType == MessageType.liveLocation)
+    return 'location';
 
   if(messageType == MessageType.contact)
     return 'vcard';
@@ -192,6 +196,7 @@ var MESSAGE_TYPE = function(messageType, msg) {
     return msg.message[messageType].ptt == true ? 'ptt' : 'audio';
 
   console.log("new format:" + messageType.toString());
+  console.log(msg);
 
   return messageType.toString();
 }
@@ -273,10 +278,13 @@ var BODY_WA = async function(mType, m, messageType) {
 
   let b;
 
-  if(!(mType == 'chat' || mType == 'vcard'))
+  if(!(mType == 'chat' || mType == 'vcard' || mType == 'buttons_response'))
     return b;
 
-  b = (m.message.conversation ? m.message.conversation : ( messageType == MessageType.extendedText && m.message.extendedTextMessage.text ? m.message.extendedTextMessage.text : ( messageType == MessageType.contact ? m.message.contactMessage.vcard : null)));
+  if(mType != 'buttons_response')
+    b = (m.message.conversation ? m.message.conversation : ( messageType == MessageType.extendedText && m.message.extendedTextMessage.text ? m.message.extendedTextMessage.text : ( messageType == MessageType.contact ? m.message.contactMessage.vcard : null)));
+  else
+    b = m.message.buttonsResponseMessage.selectedDisplayText;
 
   return b;
 }
@@ -593,7 +601,7 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
         //post message
         queue.add(async (m = msg, o = CLIENT) => { 
 
-            const messageType = Object.keys (msg.message)[0];
+            const messageType = Object.keys (m.message)[0];
             const message = m.message[messageType];
             
             //Me
@@ -606,7 +614,7 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
 
             //forward
             if(message.contextInfo){
-              console.log(message.contextInfo);
+             // console.log(message.contextInfo);
               
               if(message.contextInfo.isForwarded) {
                 m.isForwarded = message.contextInfo.isForwarded;
@@ -622,18 +630,21 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
                   m.quotedMsgBody = {
                     body: await BODY_WA(mQType, mQ, messageTypeQ) 
                   };
+                } else if (mQType == 'buttons_response') {
+                  m.quotedMsgBody = { buttonId: m.message.buttonsResponseMessage.selectedButtonId };
                 } else {
-                  m.quotedMsgBody = { body: mQType }
+                  m.quotedMsgBody = { body: mQType };
                 }
+
               }
               
             }
 
             //get media info 
-            m.media = await DOWNLOAD_MEDIA(m.type, msg, o);
+            m.media = await DOWNLOAD_MEDIA(m.type, m, o);
 
             //body
-            m.body = await BODY_WA(m.type, msg, messageType);
+            m.body = await BODY_WA(m.type, m, messageType);
             
             //get chat info            
             m.chat = await CONTACT_INFO(o, m.key.remoteJid);
@@ -799,7 +810,15 @@ WHATS_API.prototype.CONNECT = function() {
   */
   baileysWA.on('qr', qr => {
     console.log('SCAN THE ABOVE QR CODE TO LOGIN!');
-    WA_CLIENT.SET_QRCODE(qr);
+
+    const b64 = require('qrcode-base64').drawImg(qr, {
+      typeNumber: 4,
+      errorCorrectLevel: 'M',
+      size: 250
+    });
+
+    //console.log(b64);
+    WA_CLIENT.SET_QRCODE(b64);
   });
 
   if (fs.existsSync(WA_CONFIG_SESSION)) {

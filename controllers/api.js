@@ -25,9 +25,9 @@ exports.install = function() {
 	* API ROUTES - Client Configuration
 	* This route exist to you can scan qrCode remotelly from browser
 	*/
-	ROUTE('/{instance}/qrcode/',				view_qrcode			);
-	ROUTE('/{instance}/getQrcode/',				getQrcode			);
-	WEBSOCKET('/qrCodeSocket/', 				qrCodeSocket, 		['json']);
+	ROUTE('/{instance}/qrcode/',				view_qrcode			); //ok
+	ROUTE('/{instance}/getQrcode/',				getQrcode			); //ok
+	WEBSOCKET('/qrCodeSocket/', 				qrCodeSocket, 		['json']); //ok
 	
 
 	/*
@@ -44,11 +44,11 @@ exports.install = function() {
 	ROUTE('/{instance}/sendGiphy', 				sendGiphy,			['post',default_timeout]); //ok
 	ROUTE('/{instance}/sendContact',			sendContact,		['post',default_timeout]); //ok
 	ROUTE('/{instance}/sendGhostForward',		sendGhostForward,	['post',default_timeout_2]); //ok
-	ROUTE('/{instance}/getProfilePic',			getProfilePic,		['post',default_timeout]);
-	ROUTE('/{instance}/getFile',				getFile); //ok
+	ROUTE('/{instance}/getProfilePic',			getProfilePic,		['post',default_timeout]); //ok
+	ROUTE('FILE /{instance}/getFile/*',		getFile); //ok
 	
 	/* novas rotas */
-	ROUTE('/{instance}/sendButtons',					sendButtons,				['post',default_timeout]);
+	ROUTE('/{instance}/sendButtons',					sendButtons,				['post',default_timeout]); //ok
 	ROUTE('/{instance}/sendImageAsSticker',				sendImageAsSticker,			['post',default_timeout]);
 	ROUTE('/{instance}/sendReplyWithMentions',			sendReplyWithMentions,		['post',default_timeout_2]); //ok
 	ROUTE('/{instance}/sendRawWebpAsSticker',			sendRawWebpAsSticker,		['post',default_timeout]);
@@ -71,8 +71,8 @@ exports.install = function() {
 	* This routes provide you methods to get branch of information over an single request
 	* Discover more over documentation at: 
 	*/
-	ROUTE('/{instance}/dialogs',				dialogs,			[]);
-	ROUTE('/{instance}/getChatById',			getChatById,		['post',default_timeout]);
+	ROUTE('/{instance}/dialogs',				dialogs,			['post',default_timeout]); //ok
+	ROUTE('/{instance}/getChatById',			getChatById,		['post',default_timeout]); //ok
 
 	/*
 	* API ROUTES - Instance Routes
@@ -90,7 +90,7 @@ exports.install = function() {
 	* This routes provide you methods to manipulate instance
 	* Discover more over documentation at: 
 	*/	
-	ROUTE('/{masterKey}/readInstance',						readInstance,		[]);
+	ROUTE('/{masterKey}/readInstance',						readInstance,		[]); //ok
 	ROUTE('/{masterKey}/reloadServer',						reloadServer,		[60000]); //OK
 	ROUTE('/{masterKey}/killInstance',						killInstance,		[60000]); //OK
 	ROUTE('/{masterKey}/setWebhook',						setWebhook,			['post',default_timeout]); //OK
@@ -141,6 +141,38 @@ function is_url(str)
           return false;
 }
 
+function get_buttonobj(obj) {
+	let buttons = [];
+
+	/*
+	[
+		{ id: 'sim', text: 'Sim' },
+		{ id: 'nao', text: 'Não' },
+		{ id: 'talvez', text: 'Talvez' }
+	] 
+
+	{buttonId: 'id1', buttonText: {displayText: 'Button 1'}, type: 1},
+
+	*/
+
+	if(obj) {
+
+		if(typeof obj === 'string')
+			obj = eval(obj);
+
+		for(i=0; i < obj.length; i++) {
+			const b = {
+				buttonId: obj[i].id, 
+				buttonText: {displayText: obj[i].text}, 
+				type: 1
+			}
+			buttons[i] = b;
+		}
+	}
+
+	return buttons;
+}
+
 function get_mediatype(mime, fileName, caption) {
 
 	if(!(mime))
@@ -153,10 +185,12 @@ function get_mediatype(mime, fileName, caption) {
 		opt: undefined
 	}
 
+	const uuid = uuidv4().split('-');
+
 	if(!(fileName)){
-		fileName = (mime.split('/')[0] == 'video' || mime.split('/')[0] == 'image' ? uuidv4() + '.' + mime.split('/')[1] : uuidv4() + '.bin');
+		fileName = (mime.split('/')[0] == 'video' || mime.split('/')[0] == 'image' ? uuid[0] + uuid[4] + '.' + mime.split('/')[1] : uuid[0] + uuid[4] + '.bin');
 	} else {
-		fileName = uuidv4() + '_' + fileName;
+		fileName = uuid[4] + '_' + fileName;
 	}
 	
 	out.filepath = require('path').resolve(process.cwd(), 'tmp/' + fileName);
@@ -251,7 +285,7 @@ function get_mediatype(mime, fileName, caption) {
 			break;
 	
 		default:
-			out.opt.mimetype = undefined;
+			out.opt.mimetype = mime;
 			break;
 	}
 
@@ -379,10 +413,18 @@ function sendButtons(instance){
 				typeof BODY['buttons'] !== 'undefined') {
 				BODY_CHECK(BODY).then(function(processData){
 					if(processData.status){				
-						
-						//notify after send message who is the id message
+					
 						var getId = async function() {	
-							//var r = await WA_CLIENT.CONNECTION.sendButtons(processData.chatId, BODY['body'], BODY['buttons'], (BODY['title'] ? BODY['title'] : ""), (BODY['footer'] ? BODY['footer'] : ""));
+
+							const buttonMessage = {
+								contentText: BODY['body'],
+								footerText: (BODY['footer'] ? BODY['footer'] : ""),
+								header: (BODY['title'] ? BODY['title'] : undefined),
+								buttons: get_buttonobj(BODY['buttons']),
+								headerType: (BODY['title'] ? 2 : 1)
+							}
+
+							let r = await WA_CLIENT.CONNECTION.sendMessage(processData.chatId, buttonMessage, MessageType.buttonsMessage);	
 							self.json({status:true, id: WA_CLIENT.SETMSGID(r.key)});
 						}		
 						
@@ -520,26 +562,41 @@ function sendFile(instance){
 								//use url
 								if(is_url(BODY['url'])) {
 
-									var getId = async function() {		
-										let r = null;
+									download_http(BODY['url'], out.filepath, (e) => {
+										if(!e) {
 
-										try {
-											r = await WA_CLIENT.CONNECTION.sendMessage(
-												processData.chatId, 
-												{ url: BODY['url'] }, 
-												out.format, 
-												out.opt
-											);														
-										
-										self.json({status:true, id: WA_CLIENT.SETMSGID(r.key) });
+											var getId = async function() {		
+												let r = null;
 
-										} catch(e) {
-											console.log(e);
-											self.json({status:false, err: "Error when try upload file" });
-										}
-									}	
+												try {											
+													r = await WA_CLIENT.CONNECTION.sendMessage(
+														processData.chatId, 
+														{ url: out.filepath }, 
+														out.format, 
+														out.opt
+													);
 
-									getId();
+												} catch(e) {
+													console.log(e);
+													self.json({status:false, err: "Error when try upload file" });
+												} finally {
+
+													//delete arquivo
+													if (fs.existsSync(out.filepath)) {
+														fs.unlinkSync(out.filepath);
+													}
+													
+													if(r)
+														self.json({status:true, id: WA_CLIENT.SETMSGID(r.key) });
+												}
+											}	
+
+											getId();
+
+										} else {
+											self.json({status:false, err: "Erro on download media"});
+										}									
+									});	
 
 								} else {
 									self.json({status:false, err: "URL not is valid!"});
@@ -933,9 +990,8 @@ function dialogs(instance){
 	var BODY = self.body;
 	if(WA_CLIENT){
 		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-			WA_CLIENT.CONNECTION.getAllChats().then(function(contacts){
-				self.json({status:true, dialogs:contacts});
-			});
+			const client = WA_CLIENT.CONNECTION;
+			self.json({status:true, dialogs: client.contacts });
 		} else {
 			self.json({status:false, err: "Wrong token authentication"});
 		}
@@ -956,9 +1012,29 @@ function getChatById(instance){
 		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
 			BODY_CHECK(BODY).then(function(processData){
 				if(processData.status){
-					WA_CLIENT.CONNECTION.getChatById(processData.chatId).then(function(Chat){
-						self.json({status:true, data: Chat});
-					});
+
+					const client = WA_CLIENT.CONNECTION;
+
+					if(client.contacts[processData.chatId]) {  
+
+						let u = {
+						  formattedName: client.contacts[processData.chatId].name,
+						  pushName: client.contacts[processData.chatId].notify,
+						  profilePic: undefined,
+						  shortName: client.contacts[processData.chatId].short,
+						  from: WA_CLIENT.CONVERTOLDUID(client.contacts[processData.chatId].jid)
+						}  
+						
+						const uPic = client.getProfilePicture(processData.chatId).then( p => {
+							u.profilePic = p;
+						});
+						
+						self.json({status:true, data: u});
+
+					} else {
+						self.json({status:false, err: "Chat not found."});
+					}
+
 				} else {
 					self.json({status:false, err: "It is mandatory to inform the parameter 'chatId' or 'phone'"});
 				}
@@ -982,8 +1058,8 @@ function getProfilePic(instance){
 		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
 			BODY_CHECK(BODY).then(function(processData){
 				if(processData.status){
-					WA_CLIENT.CONNECTION.getProfilePicFromServer(processData.chatId).then(function(Chat){
-						self.json({status:true, data: Chat});
+					const uPic = WA_CLIENT.CONNECTION.getProfilePicture(processData.chatId).then( p => {
+						self.json({status:true, url: p});
 					});
 				} else {
 					self.json({status:false, err: "It is mandatory to inform the parameter 'chatId' or 'phone'"});
