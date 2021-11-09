@@ -145,7 +145,7 @@ var SANITIZE_ACK = function(instanceID,data){
   return JSON.stringify({
       ack: [{
         //id: data.id._serialized,
-		    id: data.key.id,
+		    id: WA_CLIENT.SETMSGID(data.key),
         chatId: WA_CLIENT.CONVERTOLDUID(data.key.remoteJid),        
         status: (data.status == 2 ? 'sent' : (data.status == 3 ? 'delivered' : 'viewed'))
       }],

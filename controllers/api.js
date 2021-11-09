@@ -10,6 +10,7 @@ const {
 	Mimetype
   } = require('@adiwajshing/baileys');
 global.ALLOW_TYPES = ['application/pdf','image/jpeg','image/png','audio/ogg','image/gif'];
+global.ALLOW_PIC_TYPES = ['image/jpeg'];
 global.default_timeout = 3000;
 global.default_timeout_2 = 6000;
 global.default_timeout_3 = 60000;
@@ -29,7 +30,6 @@ exports.install = function() {
 	ROUTE('/{instance}/getQrcode/',				getQrcode			); //ok
 	WEBSOCKET('/qrCodeSocket/', 				qrCodeSocket, 		['json']); //ok
 	
-
 	/*
 	* API ROUTES - Services
 	* This routes provide you methods to send messages over API 
@@ -38,33 +38,29 @@ exports.install = function() {
 	ROUTE('/{instance}/typing',					typing,				['post',default_timeout]); //ok
 	ROUTE('/{instance}/sendMessage',			sendMessage,		['post',default_timeout]); //ok
 	ROUTE('/{instance}/sendPTT',				sendPTT,			['post',default_timeout]); //ok
-	ROUTE('/{instance}/sendFile',				sendFile,			['post',60000]); //ok
-	ROUTE('/{instance}/sendLinkPreview',		sendLinkPreview,	['post',10000]); //parcial
+	ROUTE('/{instance}/sendFile',				sendFile,			['post',default_timeout_3]); //ok
+	ROUTE('/{instance}/sendLinkPreview',		sendLinkPreview,	['post',default_timeout_2]); //parcial
 	ROUTE('/{instance}/sendLocation',			sendLocation,		['post',default_timeout]); //ok
 	ROUTE('/{instance}/sendGiphy', 				sendGiphy,			['post',default_timeout]); //ok
+	ROUTE('/{instance}/sendSticker', 			sendSticker,		['post',default_timeout_2]); //ok
 	ROUTE('/{instance}/sendContact',			sendContact,		['post',default_timeout]); //ok
 	ROUTE('/{instance}/sendGhostForward',		sendGhostForward,	['post',default_timeout_2]); //ok
 	ROUTE('/{instance}/getProfilePic',			getProfilePic,		['post',default_timeout]); //ok
-	ROUTE('FILE /{instance}/getFile/*',		getFile); //ok
+	ROUTE('FILE /{instance}/getFile/*',		    getFile); //ok
 	
 	/* novas rotas */
 	ROUTE('/{instance}/sendButtons',					sendButtons,				['post',default_timeout]); //ok
-	ROUTE('/{instance}/sendImageAsSticker',				sendImageAsSticker,			['post',default_timeout]);
 	ROUTE('/{instance}/sendReplyWithMentions',			sendReplyWithMentions,		['post',default_timeout_2]); //ok
-	ROUTE('/{instance}/sendRawWebpAsSticker',			sendRawWebpAsSticker,		['post',default_timeout]);
-	//ROUTE('/{instance}/cutCache',						cutCache,					['post',default_timeout]);
-	//ROUTE('/{instance}/clearAllChats',					clearAllChats,				['post',default_timeout]);
-	//ROUTE('/{instance}/clearChat',						clearChat,					['post',default_timeout]);
 	ROUTE('/{instance}/checkNumberStatus',				checkNumberStatus,			['post',default_timeout]); //ok
-	//ROUTE('/{instance}/syncContacts',					syncContacts,				['post',default_timeout]);
 
 	/*
 	* API ROUTES - PersonalInformation
 	* This routes provide you methods to manipulate personal information of numberConnected
 	* Discover more over documentation at: 
 	*/
-	ROUTE('/{instance}/setMyName/',				setMyName,			['post',default_timeout]);
-	ROUTE('/{instance}/setMyStatus/',			setMyStatus,		['post',default_timeout]);
+	ROUTE('/{instance}/setMyName/',				setMyName,			['post',default_timeout]); //ok
+	ROUTE('/{instance}/setMyStatus/',			setMyStatus,		['post',default_timeout]); //ok
+	ROUTE('/{instance}/setMyProfilePic/',		setMyProfilePic,	['post',default_timeout]); //ok
 
 	/*
 	* API ROUTES - Master Routes
@@ -79,9 +75,7 @@ exports.install = function() {
 	* This routes provide you methods to manipulate instance
 	* Discover more over documentation at: 
 	*/
-	//ROUTE('/{instance}/{masterKey}/screenCapture',			screenCapture,		[]);
 	ROUTE('/{instance}/{masterKey}/isConnected',			isConnected,		[]); //ok
-	//ROUTE('/{instance}/{masterKey}/takeOver',				takeOver,			[]);
 	ROUTE('/{instance}/{masterKey}/batteryLevel',			batteryLevel,		[]); //ok
 	ROUTE('/{instance}/{masterKey}/deleteFile', 			deleteFile, 		['post',default_timeout]); //OK
 
@@ -143,17 +137,6 @@ function is_url(str)
 
 function get_buttonobj(obj) {
 	let buttons = [];
-
-	/*
-	[
-		{ id: 'sim', text: 'Sim' },
-		{ id: 'nao', text: 'Não' },
-		{ id: 'talvez', text: 'Talvez' }
-	] 
-
-	{buttonId: 'id1', buttonText: {displayText: 'Button 1'}, type: 1},
-
-	*/
 
 	if(obj) {
 
@@ -628,9 +611,7 @@ function sendFile(instance){
 											
 											if(r)
 												self.json({status:true, id: WA_CLIENT.SETMSGID(r.key) });
-										}
-
-										
+										}										
 									}						
 									getId();
 								});
@@ -739,62 +720,45 @@ function sendGiphy(instance){
 }
 
 /*
-* Route to send Image as Sticker
+* Route to send Giphy
 * tested on version 0.0.8
 * performance: degradated
 */
-function sendImageAsSticker(instance){
+function sendSticker(instance){
 	var self = this;
 	var BODY = self.body;
 	if(WA_CLIENT){
 		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-			if (typeof BODY['link'] !== 'undefined') {
+			if (typeof BODY['link'] !== 'undefined' && typeof BODY['caption'] !== 'undefined') {
 				BODY_CHECK(BODY).then(function(processData){
 					if(processData.status){
-						var getId = async function() {							
-							var r = await WA_CLIENT.CONNECTION.sendImageAsSticker(processData.chatId,BODY['link'], null);
-							self.json({status:true, id: r});
-						}						
-						getId();
-					} else {
-						self.json({status:false, err: "It is mandatory to inform the parameter 'chatId' or 'phone'"});
-					}
-				});
-			} else {
-				self.json({status:false, err: "Parameters 'link' are mandatory"});
-			}
-		} else {
-			self.json({status:false, err: "Wrong token authentication"});
-		}
-	} else {
-		self.json({status:false, err: "Your company is not set yet"});
-	}
-}
+						if(is_url(BODY['link'])) {
 
-/*
-* Route to send raw webp
-* tested on version 0.0.8
-* performance: degradated
-*/
-function sendRawWebpAsSticker(instance){
-	var self = this;
-	var BODY = self.body;
-	if(WA_CLIENT){
-		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-			if (typeof BODY['base64'] !== 'undefined') {
-				BODY_CHECK(BODY).then(function(processData){
-					if(processData.status){
-						var getId = async function() {							
-							var r = await WA_CLIENT.CONNECTION.sendRawWebpAsSticker(processData.chatId,BODY['base64'], (BODY['animated'] ? BODY['animated'] : false));
-							self.json({status:true, id: r});
-						}						
-						getId();
+							var getId = async function() {
+
+								let r = null;
+
+								r = await WA_CLIENT.CONNECTION.sendMessage(
+									processData.chatId, 
+									{ url: BODY['link'] }, // send directly from remote url!
+									MessageType.video, 
+									{ mimetype: Mimetype.gif, caption: (BODY['caption'] ? BODY['caption'] : "") }
+								)												
+								
+								self.json({status:true, id: WA_CLIENT.SETMSGID(r.key) });
+							}	
+
+							getId();
+
+						} else {
+							self.json({status:false, err: "URL not is valid!"});
+						}
 					} else {
 						self.json({status:false, err: "It is mandatory to inform the parameter 'chatId' or 'phone'"});
 					}
 				});
 			} else {
-				self.json({status:false, err: "Parameters 'base64' are mandatory"});
+				self.json({status:false, err: "Parameters 'link' and 'caption' are mandatory"});
 			}
 		} else {
 			self.json({status:false, err: "Wrong token authentication"});
@@ -1176,136 +1140,6 @@ function checkNumberStatus(instance){
 }
 
 /*
-* To do route Clear Cache
-* performance: Not Tested
-*/
-function cutCache(instance){
-	var self = this;
-	var BODY = self.body;
-	if(WA_CLIENT){
-		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-			BODY_CHECK(BODY).then(function(processData){				
-						
-			var getId = async function() {
-				var r = await WA_CLIENT.CONNECTION.cutChatCache();
-				self.json({status:true, data: r});
-			}
-			getId();				
-				
-			});
-		} else {
-			self.json({status:false, err: "Wrong token authentication"});
-		}
-	} else {
-		self.json({status:false, err: "Your company is not set yet"});
-	}
-}
-
-/*
-* Sync contact ok
-* performance: Not Tested
-*/
-function syncContacts(instance){
-	var self = this;
-	var BODY = self.body;
-	if(WA_CLIENT){
-		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-			BODY_CHECK(BODY).then(function(processData){
-				WA_CLIENT.CONNECTION.syncContacts();
-				self.json({status:true});				
-			});
-		} else {
-			self.json({status:false, err: "Wrong token authentication"});
-		}
-	} else {
-		self.json({status:false, err: "Your company is not set yet"});
-	}
-}
-
-
-/*
-* That route Clear All Chat
-* performance: Not Tested
-*/
-function clearAllChats(instance){
-	var self = this;
-	var BODY = self.body;
-	if(WA_CLIENT){
-		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-			BODY_CHECK(BODY).then(function(processData){				
-						
-			
-				WA_CLIENT.CONNECTION.clearAllChats();
-				self.json({status:true});
-						
-				
-			});
-		} else {
-			self.json({status:false, err: "Wrong token authentication"});
-		}
-	} else {
-		self.json({status:false, err: "Your company is not set yet"});
-	}
-}
-
-/*
-* Clear chat
-* performance: Not Tested
-*/
-function clearChat(instance){
-	var self = this;
-	var BODY = self.body;
-	if(WA_CLIENT){
-		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-			BODY_CHECK(BODY).then(function(processData){
-				if(processData.status){
-					if(typeof BODY['state'] !== 'undefined'){
-						WA_CLIENT.CONNECTION.clearChat(processData.chatId);
-						self.json({status:true});
-					} else {
-						self.json({status:false, err: "Parameter state is not set"});
-					}
-				} else {
-					self.json({status:false, err: "Internal error, please contact support team"});
-				}
-			});
-		} else {
-			self.json({status:false, err: "Wrong token authentication"});
-		}
-	} else {
-		self.json({status:false, err: "Your company is not set yet"});
-	}
-}
-
-/*
-* That's amazing route allow you to see whats going on inside your headless - an screencapture is made from you
-* can be necessary load twice times that address to receive an image, pay some attention too because all images 
-* is saved at /public/screenshot/
-* tested on version 0.0.8
-* performance: Operational
-*/
-function screenCapture(instance,masterKey){
-	var self = this;
-	if(WA_CLIENT){
-		if(WA_MASTERKEY == decodeURIComponent(masterKey)){
-			if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-				var getId = async function() {
-					var r = await WA_CLIENT.CONNECTION.getSnapshot();
-					self.json({status:true, b64: r});
-				}
-				getId();
-			} else {
-				self.json({status:false, err: "Wrong token authentication"});
-			}
-		} else {
-			self.json({status:false, err: "You don't have permissions to this action"});
-		}
-	} else {
-		self.json({status:false, err: "Your company is not set yet"});
-	}
-}
-
-/*
 * Route to check if your device is connected of not to application
 * tested on version 0.0.8
 * performance: Operational
@@ -1314,11 +1148,6 @@ function isConnected(instance,masterKey){
 	var self = this;
 	if(WA_CLIENT){
 		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-			/*WA_CLIENT.CONNECTION.isConnected().then(function(response){
-				self.json({status:true, instance_status: response});
-			}).catch((err) => {
-				self.json({status:false, err: 'Internal Error - please contact support now'});
-			});*/
 			let r = WA_CLIENT.CONNECTION.phoneConnected;
 			self.json({status:true, instance_status: r});
 
@@ -1330,28 +1159,6 @@ function isConnected(instance,masterKey){
 	}
 }
 
-/*
-* Route to takeOver conenction when your number open whatsWeb into another browser
-* tested on version 0.0.8
-* performance: Operational
-*/
-function takeOver(instance,masterKey){
-	var self = this;
-	if(WA_CLIENT){
-		if(WA_MASTERKEY == decodeURIComponent(masterKey)){
-			if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-				WA_CLIENT.CONNECTION.forceRefocus();
-				self.json({status:true});
-			} else {
-				self.json({status:false, err: "Wrong token authentication"});
-			}
-		} else {
-			self.json({status:false, err: "You don't have permissions to this action"});
-		}
-	} else {
-		self.json({status:false, err: "Your company is not set yet"});
-	}
-}
 
 /*
 * Route to change your personal name of number Connected
@@ -1364,9 +1171,12 @@ function setMyName(){
 	if(WA_CLIENT){
 		if(BODY['newName']){
 			if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-				console.log("Setting new name: ",BODY['newName']);
-				WA_CLIENT.CONNECTION.setMyName(BODY['newName']);
-				self.json({status:true});
+				var getId = async function() {
+					console.log("Setting new name: ",BODY['newName']);
+					var r = await WA_CLIENT.CONNECTION.updateProfileName(BODY['newName']);
+					self.json({status:true});
+				}
+				getId();
 			} else {
 				self.json({status:false, err: "Wrong token authentication"});
 			}
@@ -1389,14 +1199,66 @@ function setMyStatus(){
 	if(WA_CLIENT){
 		if(BODY['newStatus']){
 			if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-				console.log("Setting new status: ",BODY['newStatus']);
-				WA_CLIENT.CONNECTION.setMyStatus(BODY['newStatus']);
-				self.json({status:true});
+				var getId = async function() {
+					console.log("Setting new status: ",BODY['newStatus']);
+					var r = await WA_CLIENT.CONNECTION.setStatus(BODY['newStatus']);
+					self.json({status:true});
+				}
+				getId();
 			} else {
 				self.json({status:false, err: "Wrong token authentication"});
 			}
 		} else {
 			self.json({status:false, err: "newStatus paramether is mandatory!"});
+		}
+	} else {
+		self.json({status:false, err: "Your company is not set yet"});
+	}
+}
+
+
+function setMyProfilePic(instance){
+	var self = this;
+	var BODY = self.body;
+	if(WA_CLIENT){
+		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
+			if (typeof BODY['url'] !== 'undefined') {
+				BODY_CHECK(BODY).then(function(processData){	
+					if(processData.status){
+
+						if(is_url(BODY['url'])) {
+
+							request.get(BODY['url'], function (error, response, body) {
+								if (!error && response.statusCode == 200) {
+									const buf = Buffer.from(body);
+									if(ALLOW_PIC_TYPES.includes(response.headers["content-type"].split(';')[0])){
+										var getId = async function() {	
+											let r = await WA_CLIENT.CONNECTION.updateProfilePicture(processData.chatId, buf);
+											self.json({status:true});
+										}						
+										getId();
+								    } else {
+										self.json({status:false, err: "Type of file not allowed"});
+								    }
+								} else {
+									self.json({status:false, err: "Internal error to process this file - contact support now"});
+								}
+							});							
+							
+
+						} else {
+							self.json({status:false, err: "URL not is valid!"});
+						}
+
+					} else {
+						self.json({status:false, err: "It is mandatory to inform the parameter 'chatId' or 'phone'"});
+					}
+				});
+			} else {
+				self.json({status:false, err: "Paramether audio is mandatory"});
+			}
+		} else {
+			self.json({status:false, err: "Wrong token authentication"});
 		}
 	} else {
 		self.json({status:false, err: "Your company is not set yet"});
@@ -1413,10 +1275,6 @@ function batteryLevel(instance,masterKey){
 	if(WA_CLIENT){
 		if(WA_MASTERKEY == decodeURIComponent(masterKey)){
 			if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
-				//WA_CLIENT.CONNECTION.getBatteryLevel().then(function(response){
-					//console.log(response);
-				//	self.json({status:true, batteryLevel: response});
-				//});
 				self.json({status:true, batteryLevel: WA_BATTERY});
 			} else {
 				self.json({status:false, err: "Wrong token authentication"});
