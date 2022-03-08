@@ -741,8 +741,8 @@ function sendSticker(instance){
 								r = await WA_CLIENT.CONNECTION.sendMessage(
 									processData.chatId, 
 									{ url: BODY['link'] }, // send directly from remote url!
-									MessageType.video, 
-									{ mimetype: Mimetype.gif, caption: (BODY['caption'] ? BODY['caption'] : "") }
+									MessageType.image, 
+									{ mimetype: Mimetype.webp, caption: (BODY['caption'] ? BODY['caption'] : "") }
 								)												
 								
 								self.json({status:true, id: WA_CLIENT.SETMSGID(r.key) });
@@ -835,28 +835,73 @@ function sendLinkPreview(instance){
 						//var getId = null;
 						var getId = async function() {
 							/* If [type] not defined is default linkpreview */
-							if( typeof BODY['type'] == 'undefined' &&
-								typeof BODY['base64'] !== 'undefined' && 
+							if( typeof BODY['type'] == 'undefined' &&								
 								typeof BODY['title'] !== 'undefined' &&
 								typeof BODY['description'] !== 'undefined' &&
-								typeof BODY['text'] !== 'undefined') {								
-									var r = null;
-									r = await WA_CLIENT.CONNECTION.sendMessageWithThumb(BODY['base64'],													
-														BODY['link'],
-														BODY['title'],
-														BODY['description'],										
-														BODY['text'],
-														processData.chatId);
-									//console.log(r);
-									self.json({status:true, id: uuidv4()});
+								typeof BODY['text'] !== 'undefined') {		
+
+									let r = null;									
+									let buf;	
+
+									if(typeof BODY['base64'] !== 'undefined') {	
+
+										const uuid = uuidv4().split('-');
+										const tmpfilename = require('path').resolve(process.cwd(), 'tmp/' + uuid[0] + uuid[4])
+
+										fs.writeFile(tmpfilename, BODY['base64'], {encoding: 'base64'}, function(err) {
+											
+											try {
+												buf = fs.readFileSync(tmpfilename);
+											}  catch(e) {
+												console.log(e);
+												self.json({status:false, err: "Error when try upload file" });
+											} finally {
+	
+												//delete arquivo
+												if (fs.existsSync(tmpfilename)) {
+													fs.unlinkSync(tmpfilename);
+												}
+											}
+										});
+
+
+									}
+									
+									if(buf) {
+									
+										r = await WA_CLIENT.CONNECTION.sendMessage(processData.chatId, BODY['text'], MessageType.text, {
+											contextInfo: {
+											externalAdReply: {
+												title: BODY['title'],
+												body: BODY['description'],
+												thumbnail: buf,											  
+												sourceUrl: BODY['link'],
+												mediaType: 1,
+											}
+											}
+										});
+
+									} else {
+
+										r = await WA_CLIENT.CONNECTION.sendMessage(processData.chatId, { 
+											description: BODY['description'],
+											title: BODY['title'],
+											matchedText: BODY['link'],
+											canonicalUrl: BODY['link'],
+											//text: BODY['text'],
+											jpegThumbnail: undefined,
+											previewType: 0
+										
+										}, MessageType.extendedText);
+
+									}
+
+									self.json({status:true, id: WA_CLIENT.SETMSGID(r.key) });
+
 							} else {
-									r = await WA_CLIENT.CONNECTION.sendMessage(processData.chatId, BODY['text'], MessageType.text, {
-										contextInfo: {
-										  externalAdReply: {
-											  sourceUrl: BODY['link'],
-											  mediaType: 1,
-										  }
-										}
+
+									r = await WA_CLIENT.CONNECTION.sendMessage(processData.chatId, BODY['text'] + '\n' + BODY['link'], MessageType.text, {
+										detectLinks: true
 									  });	
 									self.json({status:true, id: WA_CLIENT.SETMSGID(r.key) });
 

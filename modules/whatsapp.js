@@ -39,8 +39,9 @@ const { default: PQueue } = require("p-queue");
 const crypto = require('crypto');
 const queue = new PQueue({timeout: 30000, throwOnTimeout: false });
 
-global.WA_CONFIG_ENV = process.cwd() + '/whatsSessions/config.env';
-global.WA_CONFIG_SESSION = process.cwd() + '/whatsSessions/1.data.json';
+global.WA_CONFIG_PATH = process.cwd() + '/whatsSessions';
+global.WA_CONFIG_ENV = WA_CONFIG_PATH + '/config.env';
+global.WA_CONFIG_SESSION = WA_CONFIG_PATH + '/1.data.json';
 
 //get config env
 require('dotenv').config({ path: WA_CONFIG_ENV });
@@ -196,7 +197,7 @@ var MESSAGE_TYPE = function(messageType, msg) {
     return msg.message[messageType].ptt == true ? 'ptt' : 'audio';
 
   console.log("new format:" + messageType.toString());
-  console.log(msg);
+  console.log(JSON.stringify(msg));
 
   return messageType.toString();
 }
@@ -207,7 +208,8 @@ var CONTACT_INFO = async function(client, remoteJid, groupJid = null) {
         //console.log(client.contacts);
         let u;
         
-        if(client.contacts[remoteJid]) {          
+        if(client.contacts[remoteJid]) {   
+       
           u = {
             formattedName: client.contacts[remoteJid].name,
             pushName: client.contacts[remoteJid].notify,
@@ -216,9 +218,18 @@ var CONTACT_INFO = async function(client, remoteJid, groupJid = null) {
             from: WA_CLIENT.CONVERTOLDUID(client.contacts[remoteJid].jid)
           }  
           
-          const uPic = await client.getProfilePicture(remoteJid).then( p => {
-              u.profilePic = p;
-          });
+  	   try {      
+		const uPic = await client.getProfilePicture(remoteJid).then( p => {
+              		u.profilePic = p;
+          	});
+
+  	    } catch(e) {
+     		 if (DEBUG)
+       			console.log(e);    
+   	    }
+
+
+         
         }
 
         //group info work after
@@ -343,7 +354,13 @@ var DOWNLOAD_MEDIA = async function(mType, msg, client) {
           }
           
           //save file in disk
-          fs.writeFile(process.cwd() + '/public/cdn/' + download.filelink, buffer, function(err) {
+          let pathfile = process.cwd() + '/public/cdn';
+
+          if (!fs.existsSync(pathfile)){ 
+            fs.mkdirSync(pathfile, { recursive: true });
+          }
+
+          fs.writeFile(pathfile + '/' + download.filelink, buffer, function(err) {
             if (err) {
               return console.log(err);
             }
@@ -422,9 +439,13 @@ var SANITIZE_MSG = function(instanceID, data) {
   //console.log( WA_CLIENT.CONVERTOLDUID(WA_CLIENT.CONNECTION.user.jid));
   //console.log(MESSAGE_TYPE(data));
   //return;
+  let fromName = data.author.split('@')[0];	
+  
+  if(data.sender)
+ 	fromName = (data.sender.pushName ? data.sender.pushName : (data.sender.formattedName ? data.sender.formattedName : (data.sender.shortName ? data.sender.shortName : fromName)));
 
-  let fromName = (data.sender.pushName ? data.sender.pushName : (data.sender.formattedName ? data.sender.formattedName : (data.sender.shortName ? data.sender.shortName : data.author.split('@')[0])));
   let cBody = (data.body ? data.body : (WA_DISABLEB64 ? (data.body ? data.body : '') : data.media.fileb64));
+
   return JSON.stringify({
     messages: [{ 
       id: data.id,
@@ -446,11 +467,11 @@ var SANITIZE_MSG = function(instanceID, data) {
       chatId: data.from,
       type: data.type,      
       senderName: fromName,
-	    senderPic: data.sender.profilePic,
+      senderPic: (data.sender ? data.sender.profilePic : data.sender),
       caption: (data.media.caption ? data.media.caption : (data.location.caption ? data.location.caption : (data.media.title ? data.media.title : null))), 
       quotedMsgBody: (data.quotedMsgBody ? data.quotedMsgBody : null),
       quotedMsgId: (data.quotedMsgId ? data.quotedMsgId : null),
-      chatName: (data.isGroupMsg ? data.chat.formattedName : fromName)
+      chatName: (data.isGroupMsg ? (data.chat ? data.chat.formattedName : fromName) : fromName)
     }],
     instanceId: instanceID
   });
@@ -466,9 +487,12 @@ WHATS_API.prototype.PROCESS_MESSAGE = function(data){
 
    try {      
 		SANITIZED = SANITIZE_MSG(that.INSTANCE, data);
-    } catch(e) {
-      if (DEBUG)
-        console.log(e);    
+   } catch(e) {
+        console.log(e);   
+        console.log("****"); 
+        console.log(data); 
+        console.log("****");
+        console.log(JSON.stringify(data));
     }
 
     // send websocket if avaible
@@ -574,6 +598,7 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
   that.WEBHOOK = WEBHOOK_INPUT;
   that.TOKEN = TOKEN_INPUT;
   that.CONNECTION = CLIENT;
+  that.PERSISTENT;
 
     /** when a chat is updated (new message, updated message, read message, deleted, pinned, presence updated etc) */
     CLIENT.on ('chat-update', chat => {
@@ -582,7 +607,17 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
       const { messages } = chat;
       const msg = messages.all()[0];
 
-      //console.log(chat);
+      if (!msg || msg == null || !msg.message || msg.message == null) {
+
+        //message system
+        if(msg.messageStubType == 39)
+          return;
+        
+        console.log(JSON.stringify(chat));
+        console.log(msg.messageStubType);
+
+        return;
+      }
       
       //ack message
       if(msg.key.fromMe === true && (msg.status || msg.status == 0)){
@@ -620,21 +655,25 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
                 m.isForwarded = message.contextInfo.isForwarded;
                 m.forwardingScore = message.contextInfo.forwardingScore;
               } else {
-                const messageTypeQ = Object.keys (message.contextInfo.quotedMessage)[0];
-                const mQ = {message: message.contextInfo.quotedMessage};
-                const mQType = MESSAGE_TYPE(messageTypeQ, mQ);
-                m.mentionedJid = message.contextInfo.mentionedJid;
-                m.quotedMsgId = WA_CLIENT.SETMSGID({ id: message.contextInfo.stanzaId, remoteJid: message.contextInfo.participant, fromMe: (message.contextInfo.participant === m.me)});
-               
-                if(mQType == 'chat') {
-                  m.quotedMsgBody = {
-                    body: await BODY_WA(mQType, mQ, messageTypeQ) 
-                  };
-                } else if (mQType == 'buttons_response') {
-                  m.quotedMsgBody = { buttonId: m.message.buttonsResponseMessage.selectedButtonId };
-                } else {
-                  m.quotedMsgBody = { body: mQType };
-                }
+                      if(message.contextInfo.quotedMessage) {
+
+                                  const messageTypeQ = Object.keys (message.contextInfo.quotedMessage)[0];
+                                  const mQ = {message: message.contextInfo.quotedMessage};
+                                  const mQType = MESSAGE_TYPE(messageTypeQ, mQ);
+                                  m.mentionedJid = message.contextInfo.mentionedJid;
+                                  m.quotedMsgId = WA_CLIENT.SETMSGID({ id: message.contextInfo.stanzaId, remoteJid: message.contextInfo.participant, fromMe: (message.contextInfo.participant === m.me)});
+                                
+                                  if(mQType == 'chat') {
+                                    m.quotedMsgBody = {
+                                      body: await BODY_WA(mQType, mQ, messageTypeQ) 
+                                    };
+                                  } else if (mQType == 'buttons_response') {
+                                    m.quotedMsgBody = { buttonId: m.message.buttonsResponseMessage.selectedButtonId };
+                                  } else {
+                                    m.quotedMsgBody = { body: mQType };
+                                  }
+
+                      }
 
               }
               
@@ -679,7 +718,20 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
       const batterylevel = parseInt (batteryLevelStr)
       //console.log ("battery level: " + batterylevel + "%")
       WA_BATTERY = batterylevel;
-  });
+    });
+
+    //persiste connection
+    PERSISTENT = setInterval(async () => {
+      try{
+        if(CLIENT.phoneConnected) {
+          let txt = "Esta conta está sendo controlada por um serviço automatizado.\n BY#" + (new Date().getTime());
+          await CLIENT.sendMessage(CLIENT.user.jid, txt, MessageType.text);	           
+        }
+      } catch(err) {
+        console.log(err);
+        clearInterval(PERSISTENT);
+      }
+    }, 400000);
     
     /** when contacts are sent by WA */
     /*CLIENT.on('contacts-received', u => {
@@ -789,6 +841,11 @@ WHATS_API.prototype.CONNECT = function() {
 
     if (result.newConnection) {
       const authInfo = baileysWA.base64EncodedAuthInfo() // get all the auth info we need to restore this session
+
+      if (!fs.existsSync(WA_CONFIG_PATH)){ 
+        fs.mkdirSync(WA_CONFIG_PATH, { recursive: true });
+      }
+
       fs.writeFileSync(WA_CONFIG_SESSION, JSON.stringify(authInfo, null, '\t')) // save this info to a file
     }
 
@@ -841,27 +898,17 @@ WHATS_API.prototype.CONNECT = function() {
     }
 
     // reboot service 
-    if(err.reason !== 'intentional') {
-      if(!err.isReconnecting) {
-        WA_CLIENT.KILL();
-        WA_CLIENT.DELAY(5000);
-        WA_CLIENT.CONNECT();    
-      }
-    } 
-
-    //reboot
-    if(err.reason === 'intentional') {
-      if(!err.isReconnecting) {
+    if(!err.isReconnecting) {
         WA_CLIENT.KILL();
         WA_CLIENT.DELAY(5000);
         WA_CLIENT.CONNECT();          
       }
-    } 
 
   });
 
   baileysWA.connectOptions.alwaysUseTakeover = true;
-  baileysWA.autoReconnect = ReconnectMode.onAllErrors;
+  //baileysWA.autoReconnect = ReconnectMode.onAllErrors;
+  baileysWA.autoReconnect = ReconnectMode.off;
   baileysWA.version = WA_VERSION;
   baileysWA.browserDescription = ['Mac OS', 'Safari', '10.15.3'];
 

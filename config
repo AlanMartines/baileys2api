@@ -2,10 +2,10 @@ name                            : Whats2API - Somos Chat
 author                          : João Miranda - Paulo Corcino
 version                         : 1.0.0
 client							: studio
-instance						: 1
-webhook							: 
-token							: 
-masterKey						: 
+instance						: 9007
+webhook							: http://192.168.0.107:8049/studio/gethook.rule?sys=BOT&token=aMxa8RCLOdJElOhlrxGsbA
+token							: aMxa8RCLOdJElOhlrxGsbA
+masterKey						: aMxa8RCLOdJElOhlrxGsbA
 licensekey						: 
 disableb64						: true
 waversion                       : [2, 2142, 12]
