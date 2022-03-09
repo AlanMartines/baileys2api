@@ -5,15 +5,17 @@ Array.prototype.find = function(...args) {
 }
 
 //global.openWA = require('@adiwajshing/baileys');
+const { Boom } = require('@hapi/boom');
+const P = require('pino');
 const {
   default: makeWASocket,
   useSingleFileAuthState,
-  DisconnectReason
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  delay
 }  = require('@adiwajshing/baileys');
 
-const { Boom } = require('@hapi/boom');
-
-global.baileysWA = null;
+//global.baileysWA = null;
 
 /*
  MessageType,
@@ -48,12 +50,12 @@ const queue = new PQueue({timeout: 30000, throwOnTimeout: false });
 
 global.WA_CONFIG_ENV = process.cwd() + '/whatsSessions/config.env';
 global.WA_CONFIG_SESSION = process.cwd() + '/whatsSessions/1.data.json';
-const {state, saveState} = useSingleFileAuthState(WA_CONFIG_SESSION);
+
 
 //get config env
 require('dotenv').config({ path: WA_CONFIG_ENV });
 
-global.uaOverride = 'WhatsApp/2.16.352 Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Safari/605.1.15';
+global.uaOverride = 'WhatsApp/2.22.5.72 Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15';
 global.WA_CLIENT = {};
 global.WA_SOCKET = null;
 global.WA_BATTERY = 100;
@@ -61,7 +63,7 @@ global.WA_BATTERY = 100;
 * Enviroment Values
 */
 global.WA_INSTANCE = (F.config['instance'] ? F.config['instance'].toString() : "1") ;
-global.WA_VERSION = (F.config['waversion'] ? eval(F.config['waversion']) : [2, 2142, 12]) ;
+global.WA_VERSION = (F.config['waversion'] ? eval(F.config['waversion']) : [2, 2206, 9]) ;
 global.WA_LICENCEKEY = "";
 global.WA_MASTERKEY = "";
 global.WA_TOKENKEY = "";
@@ -95,7 +97,7 @@ global.WA_CONFIG = {
     //connectCooldownMs: 3_000,
     //phoneResponseTime: 10_000,
     //alwaysUseTakeover: true,
-    auth: state,
+    //auth: state,
     fetchAgent: uaOverride,
     browser: ['Mac OS', 'Safari', '10.15.3'],
     printQRInTerminal: true
@@ -418,6 +420,24 @@ var DOWNLOAD_MEDIA = async function(mType, msg, client) {
       }
 
       return download;
+}
+
+/*
+  Get version WA
+*/
+var GET_WA_VERSION = function() {
+  
+  var getWA = async function() {							
+		const { version, isLatest } = await fetchLatestBaileysVersion();
+    
+    WA_VERSION = version;
+
+    console.log({
+      version: version,
+      isLatest: isLatest
+    });
+  }						
+  getWA();
 }
 
 /*
@@ -788,152 +808,153 @@ WHATS_API.prototype.KILL = function() {
   var that = this;
 
   //baileysWA.close();
-  baileysWA = null;
+  //baileysWA = null;
 }
 
 WHATS_API.prototype.CONNECT = function() {
+
   var that = this;
+  //baileysWA = null;
 
-  //baileysWA = new WAConnection();
+  var connectWA = async function() {   
 
-  baileysWA = makeWASocket(WA_CONFIG);
-
-  
-  baileysWA.ev.on('connection.update', u => {
-    const { connection, lastDisconnect, qr, msg } = u;
-    //console.log(connection, qr);
-
-    //show msg
-    //if(msg)
-    //  console.log(msg);
-
-    if(connection === 'close') {
-      //console.log(typeof lastDisconnect.error);
-      //console.log(lastDisconnect.error.output.statusCode);
-      //console.log(DisconnectReason.loggedOut);
-      console.log(lastDisconnect.error);
-
-      if(lastDisconnect.isBoom) {
-        const shouldReconnect = lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut;
-        console.log('connection closed due to ', lastDisconnect.error, ', reconnecting ', shouldReconnect)
-        
-        //reconnecting
-        if(shouldReconnect)
-          WA_CLIENT.CONNECT();  
-      }
-
-      /*const shouldReconnect = (typeof lastDisconnect.error == Boom)?.output?.statusCode !== DisconnectReason.loggedOut
-      console.log('connection closed due to ', lastDisconnect.error, ', reconnecting ', shouldReconnect)
-      // reconnect if not logged out
-      if(shouldReconnect) {
-          connectToWhatsApp()
-      }*/
-    } else if(connection === 'open') {
-        console.log('opened connection');
-    } else if (connection == 'connecting') {
-      console.log(connection + '...');
-    }
+    const { version, isLatest } = await fetchLatestBaileysVersion();
     
-    //Send QRCODE
-    if(qr) {
-      console.log('SCAN THE ABOVE QR CODE TO LOGIN!');
+    WA_VERSION = version;
 
-      const b64 = require('qrcode-base64').drawImg(qr, {
-        typeNumber: 4,
-        errorCorrectLevel: 'M',
-        size: 250
-      });
-
-      //console.log(b64);
-      WA_CLIENT.SET_QRCODE(b64);
-    }
-
-  });
-
-  /*
-  baileysWA.on ('open', result => {
-
-    if (result.newConnection) {
-      const authInfo = baileysWA.base64EncodedAuthInfo() // get all the auth info we need to restore this session
-      fs.writeFileSync(WA_CONFIG_SESSION, JSON.stringify(authInfo, null, '\t')) // save this info to a file
-    }
-
-    //EXECUTING MODULE SETUP
-    if(qrCodeManager){
-      qrCodeManager.send({ connected: true });
-    }
-
-    //if have socket send
-    if(WA_SOCKET)
-      WA_SOCKET.send({ connected: true });
-    
-    WA_CLIENT.SETUP(baileysWA, WA_WEBHOOK, WA_TOKENKEY);
-
-  });
-
-  
-  // Declare event getter for when qrcode is available from openWA-api
-  
-  baileysWA.on('qr', qr => {
-    console.log('SCAN THE ABOVE QR CODE TO LOGIN!');
-
-    const b64 = require('qrcode-base64').drawImg(qr, {
-      typeNumber: 4,
-      errorCorrectLevel: 'M',
-      size: 250
+    console.log({
+      version: version,
+      isLatest: isLatest
     });
 
-    //console.log(b64);
-    WA_CLIENT.SET_QRCODE(b64);
-  });
+    await delay(500);
 
-  if (fs.existsSync(WA_CONFIG_SESSION)) {
-    baileysWA.loadAuthInfo(WA_CONFIG_SESSION);
+    //restore session WA
+    const {state, saveState} = useSingleFileAuthState(WA_CONFIG_SESSION);
+
+    //set config parameters
+    WA_CONFIG.auth = state;
+    WA_CONFIG.version = WA_VERSION;
+    //level log
+    WA_CONFIG.logger = (DEBUG) ? P({ level: "debug" }) : P({ level: 'info' });
+
+    //start service
+    const sock = makeWASocket(WA_CONFIG);
+
+    //handle: connection update
+    sock.ev.on('connection.update', async u => {
+
+            const { connection, lastDisconnect, qr } = u;
+
+            let qrNotification = (connected, message) => {
+              //send message if QR Code process
+              if(qrCodeManager){
+                qrCodeManager.send({ connected: connected,
+                                    message: message
+                });
+              }
+
+              //if have socket send
+              if(WA_SOCKET) {
+                WA_SOCKET.send({ connected: connected,
+                              message: message
+                });
+              }            
+            }
+
+            //console.log('LogErrorSC', lastDisconnect);
+        
+            if(connection === 'close') {
+
+              let reconnectObj = {
+                reconnect: false,
+                reson: undefined,
+                delay: 0
+              }
+
+              const {errno, isBoom, data} = lastDisconnect.error;
+
+              //device removed, so delete session file
+              try {
+                if(data.content[0].attrs.type == 'device_removed'){
+                  fs.unlinkSync(WA_CONFIG_SESSION);
+
+                  //reconnect
+                  reconnectObj.reconnect = true;
+                  reconnectObj.reson = 'Device Removed';
+                  reconnectObj.delay = 10000;
+                }
+              } catch(e) {
+                //none
+              }               
+
+              //fail internet connection
+              if(errno == -3008) {
+                //reconnect
+                reconnectObj.reconnect = true;
+                reconnectObj.reson = 'Fail connection with Internet';
+                reconnectObj.delay = 30000;
+              }
+                
+              if(isBoom) {
+
+                if (lastDisconnect.error.output.statusCode !== DisconnectReason.loggedOut || lastDisconnect.error.output.payload.message == 'Connection Failure') {
+                  //reconnect
+                  reconnectObj.reconnect = true;
+                  reconnectObj.reson = lastDisconnect.error.output.payload.message;
+                  reconnectObj.delay = 5000;
+                } 
+
+                //notify about fail over connection
+                qrNotification(false, lastDisconnect.error.output.payload.message);
+                
+              }
+
+              if(reconnectObj.reconnect) {
+
+                  console.log('connection closed due to ', reconnectObj.reson ,', reconnecting ', reconnectObj.reconnect);
+
+                  if(reconnectObj.delay > 0)
+                    await delay(reconnectObj.delay);
+
+                  connectWA();
+              }
+
+            } else if(connection === 'open') {
+                console.log('opened connection');
+
+                //if QRCode inform success
+                qrNotification(true, undefined);
+
+                //start service
+                //WA_CLIENT.SETUP(sock, WA_WEBHOOK, WA_TOKENKEY);
+
+            } else if (connection == 'connecting') {
+              console.log(connection + '...');              
+            }
+            
+            //Send QRCODE
+            if(qr) {
+              console.log('SCAN THE ABOVE QR CODE TO LOGIN!');
+        
+              const b64 = require('qrcode-base64').drawImg(qr, {
+                typeNumber: 4,
+                errorCorrectLevel: 'M',
+                size: 250
+              });
+        
+              //console.log(b64);
+              WA_CLIENT.SET_QRCODE(b64);
+            }
+  
+    });
+
+    //handle: Save State
+    sock.ev.on('creds.update', saveState);
   }
- 
-  baileysWA.on('connecting', () => {console.log('Connecting...')});
-
-  baileysWA.on('close', err => { 
-
-    console.log(err); 
-
-    //if session ivalid, delete file and restart
-    if(err.reason == 'invalid_session') {
-      try{
-        fs.unlinkSync(WA_CONFIG_SESSION);
-      } catch(e){
-        //none
-      }
-    }
-
-    // reboot service 
-    if(err.reason !== 'intentional') {
-      if(!err.isReconnecting) {
-        WA_CLIENT.KILL();
-        WA_CLIENT.DELAY(5000);
-        WA_CLIENT.CONNECT();    
-      }
-    } 
-
-    //reboot
-    if(err.reason === 'intentional') {
-      if(!err.isReconnecting) {
-        WA_CLIENT.KILL();
-        WA_CLIENT.DELAY(5000);
-        WA_CLIENT.CONNECT();          
-      }
-    } 
-
-  });
-
-  //baileysWA.connectOptions.alwaysUseTakeover = true;
-  //baileysWA.autoReconnect = ReconnectMode.onAllErrors;
-  //baileysWA.version = WA_VERSION;
-  //baileysWA.browser= ['Mac OS', 'Safari', '10.15.3'];
-
-  //baileysWA.connect(WA_CONFIG);
-  */
-
+  
+  // strat Baileys
+  connectWA();
 }
 
 module.exports = WHATS_API;
