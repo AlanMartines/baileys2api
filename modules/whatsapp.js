@@ -4,7 +4,6 @@ Array.prototype.find = function(...args) {
 	if (index >= 0) return index >= 0 ? this[index] : void 0 ;
 }
 
-//global.openWA = require('@adiwajshing/baileys');
 const { Boom } = require('@hapi/boom');
 const P = require('pino');
 const {
@@ -12,8 +11,17 @@ const {
   useSingleFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
-  delay
+  delay,
+  MessageType, 
+  MessageOptions, 
+  Mimetype,
+  makeInMemoryStore,
+  Browsers,
+  isJidGroup,
+  getContentType
 }  = require('@adiwajshing/baileys');
+const levelup = require('levelup');
+const leveldown = require('leveldown');
 
 //global.baileysWA = null;
 
@@ -49,21 +57,24 @@ const crypto = require('crypto');
 const queue = new PQueue({timeout: 30000, throwOnTimeout: false });
 
 global.WA_CONFIG_ENV = process.cwd() + '/whatsSessions/config.env';
+global.WA_CONFIG_STORE = process.cwd() + '/whatsSessions/store.json';
+global.WA_CONFIG_DB = process.cwd() + '/whatsSessions/store.db';
 global.WA_CONFIG_SESSION = process.cwd() + '/whatsSessions/1.data.json';
-
 
 //get config env
 require('dotenv').config({ path: WA_CONFIG_ENV });
 
 global.uaOverride = 'WhatsApp/2.22.5.72 Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15';
 global.WA_CLIENT = {};
+global.WA_STORE = null;
+global.WA_DB = null;
 global.WA_SOCKET = null;
 global.WA_BATTERY = 100;
 /*
 * Enviroment Values
 */
 global.WA_INSTANCE = (F.config['instance'] ? F.config['instance'].toString() : "1") ;
-global.WA_VERSION = (F.config['waversion'] ? eval(F.config['waversion']) : [2, 2206, 9]) ;
+global.WA_VERSION = null;
 global.WA_LICENCEKEY = "";
 global.WA_MASTERKEY = "";
 global.WA_TOKENKEY = "";
@@ -75,14 +86,16 @@ global.WA_DISABLEB64 = false;
 if( WA_INSTANCE == "1") {
   WA_LICENCEKEY = (process.env.WA_LICENCEKEY ? process.env.WA_LICENCEKEY : "");
   WA_MASTERKEY = (process.env.WA_MASTERKEY ? process.env.WA_MASTERKEY : "");
-  WA_TOKENKEY = (process.env.WA_MASTERKEY ? process.env.WA_MASTERKEY : "");
+  //to do: remove 
+  WA_TOKENKEY = WA_MASTERKEY;
   WA_WEBHOOK = (process.env.WA_WEBHOOK ? process.env.WA_WEBHOOK : "http://127.0.0.1/");
   WA_ISDOCKER = true;
   WA_DISABLEB64 = true;
 } else {
   WA_LICENCEKEY = (F.config["licensekey"] ? F.config["licensekey"] : "");
   WA_MASTERKEY = (F.config["masterKey"] ? F.config["masterKey"] : "");
-  WA_TOKENKEY = (F.config["token"] ? F.config["token"] : "");
+  //to do: remove
+  WA_TOKENKEY = WA_MASTERKEY;
   WA_WEBHOOK = (F.config["webhook"] ? F.config["webhook"] : "http://127.0.0.1/");
   if(F.config["disableb64"] == true)
     WA_DISABLEB64 = true;
@@ -99,7 +112,8 @@ global.WA_CONFIG = {
     //alwaysUseTakeover: true,
     //auth: state,
     fetchAgent: uaOverride,
-    browser: ['Mac OS', 'Safari', '10.15.3'],
+    //browser: ['Mac OS', 'Safari', '10.15.3'],
+    browser: Browsers.macOS('Safari'),
     printQRInTerminal: true
   };
 
@@ -123,15 +137,10 @@ function hasSocket(){
   return false;
 }
 
-
-
-
 /*
 * WhatsApp API SUPER CLASS
 * Personal regards to:
-* Mohhamed Shah (openWA) - 
 * Peter Sírka (TotalJS) - 
-* This library was built using openWA and pieces of 
 */
 function WHATS_API(USER_ID) {
   console.log("\n====================================================");
@@ -142,6 +151,7 @@ function WHATS_API(USER_ID) {
   this.TOKEN = "";
   this.INSTANCE = USER_ID;
   this.CONNECTION = {};
+  this.ME = {};
 };
 
 /*
@@ -177,129 +187,43 @@ var SANITIZE_ACK = function(instanceID,data){
     liveLocation:'liveLocationMessage'*
     product:'productMessage'*
 */
-var MESSAGE_TYPE = function(messageType, msg) {
-  //const messageType = Object.keys (msg.message)[0];
-  //const messageMedia = msg.message[messageType];
+var MESSAGE_TYPE = function(messageType, ptt = false) {
 
-  if(messageType == MessageType.text || messageType == MessageType.extendedText)
-    return 'chat'
+  //type message to ignore
+  if(messageType == 'senderKeyDistributionMessage')
+    return 'ignore'
 
-  if(messageType.toString() === 'buttonsResponseMessage' || messageType == MessageType.buttonsMessage) 
-    return 'buttons_response'
+  if(messageType == 'conversation' || messageType == 'extendedTextMessage')
+    return 'chat';
 
-  if(messageType == MessageType.image)
+  if(messageType.toString() === 'buttonsResponseMessage') 
+    return 'buttons_response';
+
+  if(messageType == 'imageMessage')
     return 'image';
-  
-  if(messageType == MessageType.document)
+
+  if(messageType == 'documentMessage')
     return 'document';
   
-  if(messageType == MessageType.video)
+  if(messageType == 'videoMessage')
     return 'video';
 
-  if(messageType == MessageType.location || messageType == MessageType.liveLocation)
+  if(messageType == 'locationMessage' || messageType == 'liveLocationMessage')
     return 'location';
 
-  if(messageType == MessageType.contact)
+  if(messageType == 'contactMessage')
     return 'vcard';
 
-  if(messageType == MessageType.sticker)
+  if(messageType == 'stickerMessage')
     return 'sticker';
   
-  if(messageType == MessageType.audio)
-    return msg.message[messageType].ptt == true ? 'ptt' : 'audio';
-
-  console.log("new format:" + messageType.toString());
-  console.log(msg);
+  if(messageType == 'audioMessage')
+    return ptt ? 'ptt' : 'audio';
+ 
+  console.log("new format:" + messageType.toString(), JSON.stringify(msg, undefined, 2));
+  msg = null;
 
   return messageType.toString();
-}
-
-var CONTACT_INFO = async function(client, remoteJid, groupJid = null) {
-
-      if(client){
-        //console.log(client.contacts);
-        let u;
-        
-        if(client.contacts[remoteJid]) {          
-          u = {
-            formattedName: client.contacts[remoteJid].name,
-            pushName: client.contacts[remoteJid].notify,
-            profilePic: undefined,
-            shortName: client.contacts[remoteJid].short,
-            from: WA_CLIENT.CONVERTOLDUID(client.contacts[remoteJid].jid)
-          }  
-          
-          const uPic = await client.getProfilePicture(remoteJid).then( p => {
-              u.profilePic = p;
-          });
-        }
-
-        //group info work after
-        /*
-        if(groupJid != null) {
-          const response = await client.query({ json: ["query","GroupMetadata",groupJid] })
-          .then(data => data.participants.map(a => {
-            console.log(a);
-          }));
-          /*if(u && response) {
-            u.isAdmin = response.participants[u.from].isAdmin; 
-            u.isSuperAdmin= response.participants[u.from].isSuperAdmin;
-          }
-          //const i = await client.groupMetadata(remoteJid).then(data => {
-          console.log(response.participants);*/
-         // });
-          
-       // }
-
-        return u;
-
-        
-      }
-
-}
-
-var LOCATION_INFO = async function(mType, messageMedia, messageType) {
-  //const mType = MESSAGE_TYPE(msg);
-
-  let loc = {
-    lat: undefined,
-    lng: undefined,
-    isLive: undefined,
-    loc: undefined,
-    caption: undefined
-  };
-
-  if(mType != 'location')
-    return loc;
-
-  //const messageType = Object.keys (msg.message)[0];
-  //const messageMedia = msg.message[messageType];
-
-  loc.lat = messageMedia.degreesLatitude;
-  loc.lng = messageMedia.degreesLongitude;
-  loc.caption = (messageMedia.caption ? messageMedia.caption : undefined);
-  loc.isLive = (messageType == MessageType.liveLocation);
-  loc.loc = (messageMedia.address && messageMedia.name ? (messageMedia.name != messageMedia.address ? `${messageMedia.name}\r\n${messageMedia.address}` : `${messageMedia.address}`) : undefined);
-  
-  if(loc.loc == '')
-    loc.loc = undefined;
-
-  return loc;
-}
-
-var BODY_WA = async function(mType, m, messageType) {
-
-  let b;
-
-  if(!(mType == 'chat' || mType == 'vcard' || mType == 'buttons_response'))
-    return b;
-
-  if(mType != 'buttons_response')
-    b = (m.message.conversation ? m.message.conversation : ( messageType == MessageType.extendedText && m.message.extendedTextMessage.text ? m.message.extendedTextMessage.text : ( messageType == MessageType.contact ? m.message.contactMessage.vcard : null)));
-  else
-    b = m.message.buttonsResponseMessage.selectedDisplayText;
-
-  return b;
 }
 
 var DOWNLOAD_MEDIA = async function(mType, msg, client) {
@@ -422,22 +346,11 @@ var DOWNLOAD_MEDIA = async function(mType, msg, client) {
       return download;
 }
 
-/*
-  Get version WA
-*/
-var GET_WA_VERSION = function() {
-  
-  var getWA = async function() {							
-		const { version, isLatest } = await fetchLatestBaileysVersion();
-    
-    WA_VERSION = version;
-
-    console.log({
-      version: version,
-      isLatest: isLatest
-    });
-  }						
-  getWA();
+var ESCAPE_MSG = function(text) {
+  if(text) {
+    text = text.replace(/"/g, '\\"').replace(/'/g, "\\'");
+  }
+  return text;
 }
 
 /*
@@ -605,8 +518,302 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
   that.WEBHOOK = WEBHOOK_INPUT;
   that.TOKEN = TOKEN_INPUT;
   that.CONNECTION = CLIENT;
+  that.ME = {};
+
+
+  if(that.CONNECTION) {
+
+    //get info me
+
+      that.ME = { 
+        type: that.CONNECTION.type,
+        jid: that.CONNECTION.user.id,
+        id: WA_CLIENT.CONVERTOLDUID(that.CONNECTION.user.id),
+        name: that.CONNECTION.user.name,
+        profilePic: undefined
+      }
+
+        //get image whatsapp
+        const getMePicture = async () => { 
+        
+          try {
+
+            await that.CONNECTION.profilePictureUrl(
+                that.ME.jid,
+              'image'
+            ).then( p => {
+              that.ME.profilePic = p;
+              console.log(p);
+            });
+
+          } catch(e) {
+            //erro
+            console.log(e);
+          } finally {
+            console.log(this.ME);
+          }
+
+        }
+
+        getMePicture();
+  }
+
+    //get jid info
+    const JIDINFO = async function(jid, name = null, groupJid = null, isUpdate = false) {  
+
+      //
+      if(!jid || !that.CONNECTION)
+        return;
+
+      let jidinfo = {
+          formattedName: undefined,
+          pushName: undefined,
+          profilePic: undefined,
+          shortName: undefined,
+          from: undefined,
+          groupMetadata: undefined
+      };    
+
+      const customJid = WA_CLIENT.CONVERTOLDUID(jid);
+
+      //check db
+      if(!isUpdate) {
+
+        await WA_DB.get(customJid, function(err, value) {
+          if(!err) {
+            jidinfo = JSON.parse(value);
+          }          
+        });
+
+        // if found data return
+        if(jidinfo.from)
+          return jidinfo;
+      }
+      
+      jidinfo.from = customJid;
+
+      const isGroup = isJidGroup(jid);
+      
+      if(isGroup && groupJid == null) {
+        await that.CONNECTION.groupMetadata(jid).then( g => {
+          jidinfo.formattedName = g.subject;
+          jidinfo.pushName = g.subject;
+          jidinfo.shortName = g.subject;  
+          jidinfo.groupMetadata = g;
+        }); 
+
+      } 
+
+      if(!isGroup || groupJid != null) {        
+        jidinfo.formattedName = name;
+        jidinfo.pushName = name;
+        jidinfo.shortName = name;        
+      }
+
+      try {
+
+       const a = await that.CONNECTION.profilePictureUrl(
+          jid,
+          'image'
+        ).then( p => {
+          jidinfo.profilePic = p;
+        });
+
+      } catch(e) {
+        //erro
+      }
+
+      //recorder
+      if(jidinfo) {
+        try {
+           await WA_DB.put(customJid, JSON.stringify(jidinfo, undefined));
+        } catch(e) {
+          console.log('Fail when try store contact info', jidinfo, e)
+        }
+      }
+
+      //clear info that not need to service
+      jidinfo.groupMetadata = undefined;
+
+      return jidinfo;
+    }
+
+    //get location info
+    const LOCATIONINFO = async function(m) {
+
+      const mType = getContentType(m.message);
+      
+      let loc = {
+        lat: undefined,
+        lng: undefined,
+        isLive: undefined,
+        loc: undefined,
+        caption: undefined,
+        jpegThumb: undefined
+      };
+
+      if(mType == 'locationMessage' || mType == 'liveLocationMessage') {
+
+        const messageMedia = m.message[mType];
+
+        loc.lat = messageMedia.degreesLatitude;
+        loc.lng = messageMedia.degreesLongitude;
+        loc.jpegThumb = messageMedia.jpegThumbnail;
+        loc.caption = (messageMedia.caption ? messageMedia.caption : undefined);
+        loc.isLive = (mType == 'liveLocationMessage');
+        loc.loc = (messageMedia.address && messageMedia.name ? (messageMedia.name != messageMedia.address ? `${messageMedia.name}\r\n${messageMedia.address}` : `${messageMedia.address}`) : undefined);
+        
+        if(loc.loc == '')
+          loc.loc = undefined;
+
+      }
+
+      return loc;
+    }  
+
+    //get body info
+    const BODY = async function(m, contentType) {
+
+      const mType = MESSAGE_TYPE(contentType);
+      const message = m.message[contentType];
+
+      if(!(mType == 'chat' || mType == 'vcard' || mType == 'buttons_response'))
+        return;
+
+        if(mType != 'buttons_response') {
+
+          if(contentType == 'conversation')
+              return message;
+        
+          //console.log(message);
+          if(mType == 'chat' && message.text){
+              return message.text;
+          } else if(mType == 'vcard') {
+            return message.vcard;
+          }         
+        }
+        else
+          return message.selectedDisplayText;
+    }
+
+    //get media info
+    const DOWNLOADBIN = async function() {
+      
+    }
+
+	that.CONNECTION.ev.on('messages.upsert', async chat => {
+    
+    //messages is null
+    if (!chat.messages) return; 
+
+    const m = chat.messages[0];
+
+    if(!m.message) return;
+
+    const messageType = getContentType(m.message);
+    m.type = MESSAGE_TYPE(messageType, (m.message[messageType].ptt));
+
+    if(messageType == 'ignore') return;
+    
+    //Me
+    m.id = WA_CLIENT.SETMSGID(m.key);
+    m.me = WA_CLIENT.CONVERTOLDUID(WA_CLIENT.ME.jid);
+    m.from = (messageType == 'broadcast'? WA_CLIENT.CONVERTOLDUID(m.key.participant) : WA_CLIENT.CONVERTOLDUID(m.key.remoteJid));
+    m.isGroupMsg = isJidGroup(m.from);
+    m.author = (m.isGroupMsg ? WA_CLIENT.CONVERTOLDUID(m.key.participant) : WA_CLIENT.CONVERTOLDUID(m.key.remoteJid));
+        
+    //get media info 
+    m.media = await DOWNLOAD_MEDIA(m.type, m, o);
+
+    //body
+    m.body = await BODY(m, messageType);
+    
+    //get chat info           
+    m.chat = await JIDINFO(m.key.remoteJid, m.pushName);
+
+    //get sender info 
+    m.sender = await JIDINFO((m.key.participant ? m.key.participant : m.key.remoteJid), m.pushName, (m.isGroupMsg ? m.key.remoteJid : null));   
+
+    //get loc info
+    m.location = await LOCATIONINFO(m);
+
+
+    console.log(JSON.stringify(m, undefined, 2));
+
+    //send confirm read
+    try {
+      await that.CONNECTION.sendReadReceipt(m.key.remoteJid, (m.isGroupMsg ? m.key.participant : undefined), [m.key.id]);  
+    } catch(e) {
+      //nda
+    }
+
+	})
+
+  //chat notify update 
+  that.CONNECTION.ev.on('chats.update', async m => {
+  
+    //console.log('chats.update', JSON.stringify(m, undefined, 2))
+    for(const i of m) {
+      if(i.name)
+        await that.JIDINFO(i.id, i.name, null, true);  
+    }
+
+  })
+
+  //event call
+ that.CONNECTION.ws.on('CB:call', (m) => {
+  if(m.content) {
+    if(m.content[0].tag == 'terminate') {
+      const call = {
+          reason: m.content[0].attrs.reason,
+          id: WA_CLIENT.SETMSGID({
+            remoteJid: m.content[0].attrs["call-creator"],
+            fromMe: false,
+            id: m.content[0].attrs["call-id"],
+          }),
+          me: WA_CLIENT.CONVERTOLDUID(WA_CLIENT.ME.jid),
+          from: WA_CLIENT.CONVERTOLDUID(m.content[0].attrs["call-creator"]),
+          type: 'call'
+      }
+      console.log('Call', JSON.stringify(call, undefined, 2))
+    }
+  }
+ });
+
+	//that.CONNECTION.ev.on('messages.update', m => console.log('messages.update', JSON.stringify(m, undefined, 2)))
+	//that.CONNECTION.ev.on('message-receipt.update', m => console.log('message-receipt.update', JSON.stringify(m, undefined, 2)))
+	//that.CONNECTION.ev.on('presence.update', m => console.log('presence.update', JSON.stringify(m, undefined, 2)))
+	
+      
+  /*
+  that.CONNECTION.ev.on('contacts.set', () => {
+      //console.log('got contacts', Object.values(WA_STORE.contacts))
+  })
+  */
+
+  //that.CONNECTION.ev.on('chats.set', item => console.log('chats.set', `recv ${item.chats.length} chats (is latest: ${item.isLatest})`))
+	//that.CONNECTION.ev.on('messages.set', item => console.log('messages.set', `recv ${item.messages.length} messages (is latest: ${item.isLatest})`))
+	//that.CONNECTION.ev.on('contacts.set', item => console.log('contacts.set', `recv ${item.contacts.length} contacts`))
+
+  /*
+  
+  const sentMsg  = async () => {
+    await that.CONNECTION.sendMessage("557981189757@s.whatsapp.net", { text: 'oh hello there' });
+  }
+
+  sentMsg();
+  */
+
+
+
+  //that.CONNECTION.ev.on('contacts.update', m => console.log('contacts.upsert', JSON.stringify(m, undefined, 2)))
+
+
+
+//that.CONNECTION.ev.on('contacts.upsert', m => console.log('contacts.upsert', JSON.stringify(m, undefined, 2)))
 
     /** when a chat is updated (new message, updated message, read message, deleted, pinned, presence updated etc) */
+   /*
     CLIENT.on ('chat-update', chat => {
       if (!chat.messages) return   
 
@@ -691,26 +898,33 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
         });     
       }
     });
+    */
 
     /** when the connection to the phone changes */
+    /*
     CLIENT.on('connection-phone-change', state => {
       //console.log("connection-phone-change");
       //console.log("Connection State:" + state);
       that.PROCESS_STATE(state);
     });
+    */
 
     /** when a contact is updated */
+    /*
     CLIENT.on('contact-update', update => {      
       console.log("contact-update")
       console.log(update);
     });
+    */
 
-    CLIENT.on ('CB:action,,battery', json => {
+  /*
+  CLIENT.on ('CB:action,,battery', json => {
       const batteryLevelStr = json[2][0][1].value
       const batterylevel = parseInt (batteryLevelStr)
       //console.log ("battery level: " + batterylevel + "%")
       WA_BATTERY = batterylevel;
   });
+  */
     
     /** when contacts are sent by WA */
     /*CLIENT.on('contacts-received', u => {
@@ -727,8 +941,17 @@ WHATS_API.prototype.CONVERTOLDUID = function(id){
 
   if(id.indexOf('-') !== -1)
     return id.replace(new RegExp('s.whatsapp.net', 'g'), 'g.us');
-  else
-    return id.replace(new RegExp('s.whatsapp.net', 'g'), 'c.us');
+  else {
+    id = id.replace(new RegExp('s.whatsapp.net', 'g'), 'c.us');
+
+    // remove : name
+    if(id.includes(':')){
+      id = id.split(':')[0] + 'c.us';
+    }
+
+    return id;
+
+  }
 
 }
 
@@ -814,13 +1037,26 @@ WHATS_API.prototype.KILL = function() {
 WHATS_API.prototype.CONNECT = function() {
 
   var that = this;
-  //baileysWA = null;
+  WA_STORE = null;
 
   var connectWA = async function() {   
 
+    // storage 
+    //WA_STORE = makeInMemoryStore({ logger: P({ level: 'silent', stream: 'store' }) });
+
+
+    // can be read from a file
+    //WA_STORE.readFromFile(WA_CONFIG_STORE);
+
+    // saves the state to a file every 10s
+    /*setInterval(() => {
+      WA_STORE.writeToFile(WA_CONFIG_STORE);
+    }, 10_000)*/
+
     const { version, isLatest } = await fetchLatestBaileysVersion();
     
-    WA_VERSION = version;
+    //set version WAWeb 
+    WA_VERSION = (version ? version : (F.config['waversion'] ? eval(F.config['waversion']) : [2, 2206, 9]));
 
     console.log({
       version: version,
@@ -835,11 +1071,15 @@ WHATS_API.prototype.CONNECT = function() {
     //set config parameters
     WA_CONFIG.auth = state;
     WA_CONFIG.version = WA_VERSION;
+
     //level log
-    WA_CONFIG.logger = (DEBUG) ? P({ level: "debug" }) : P({ level: 'info' });
+    WA_CONFIG.logger = (DEBUG) ? P({ level: "debug" }) : P({ level: 'silent' });
 
     //start service
     const sock = makeWASocket(WA_CONFIG);
+
+    //persiste database
+    //WA_STORE.bind(sock.ev);
 
     //handle: connection update
     sock.ev.on('connection.update', async u => {
@@ -849,15 +1089,17 @@ WHATS_API.prototype.CONNECT = function() {
             let qrNotification = (connected, message) => {
               //send message if QR Code process
               if(qrCodeManager){
-                qrCodeManager.send({ connected: connected,
-                                    message: message
+                qrCodeManager.send({ 
+                  connected: connected,
+                  message: message
                 });
               }
 
               //if have socket send
               if(WA_SOCKET) {
-                WA_SOCKET.send({ connected: connected,
-                              message: message
+                WA_SOCKET.send({ 
+                  connected: connected,
+                  message: message
                 });
               }            
             }
@@ -916,6 +1158,11 @@ WHATS_API.prototype.CONNECT = function() {
 
                   if(reconnectObj.delay > 0)
                     await delay(reconnectObj.delay);
+                  
+                  //close db
+                  await WA_DB.close(function (err){
+                    WA_DB = null;
+                  });                 
 
                   connectWA();
               }
@@ -926,8 +1173,11 @@ WHATS_API.prototype.CONNECT = function() {
                 //if QRCode inform success
                 qrNotification(true, undefined);
 
+                //db
+                WA_DB = levelup(leveldown(WA_CONFIG_DB));
+
                 //start service
-                //WA_CLIENT.SETUP(sock, WA_WEBHOOK, WA_TOKENKEY);
+                WA_CLIENT.SETUP(sock, WA_WEBHOOK, WA_TOKENKEY);
 
             } else if (connection == 'connecting') {
               console.log(connection + '...');              
@@ -951,6 +1201,7 @@ WHATS_API.prototype.CONNECT = function() {
 
     //handle: Save State
     sock.ev.on('creds.update', saveState);
+
   }
   
   // strat Baileys
