@@ -1,0 +1,12 @@
+node_modules/
+whatsSessions/
+.vscode/
+.DS_Store
+receivers.txt
+debug.pid
+config
+debug.pid
+package-lock.json
+debug.js.json
+package-lock.json
+debug.pid
