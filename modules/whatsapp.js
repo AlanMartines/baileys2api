@@ -302,7 +302,7 @@ WHATS_API.prototype.PROCESS_MESSAGE = async function(data, type){
   if(hasSocket()) {
     try {
       
-      if (DEBUG)
+      if (DEBUG && type != 'qr')
         console.log(SANITIZED);
 
       WA_SOCKET.send(SANITIZED);
@@ -328,7 +328,7 @@ WHATS_API.prototype.PROCESS_MESSAGE = async function(data, type){
       if(response.statusCode != 200){
         ERROR_CATCHER("Status Code error: "+response.statusCode,response);
       } else {
-        if (DEBUG)
+        if (DEBUG  && type != 'qr')
           console.log(SANITIZED);
       }
     }
@@ -939,7 +939,7 @@ WHATS_API.prototype.GETMESSAGEBYID = async function(msgid) {
   return msg;
 }
 
-WHATS_API.prototype.SET_QRCODE = function(code){
+WHATS_API.prototype.SET_QRCODE = async function(code){
   var that = this;
 
   if(qrCodeManager){
@@ -947,7 +947,8 @@ WHATS_API.prototype.SET_QRCODE = function(code){
   };
 
   //send QRCode
-  that.PROCESS_MESSAGE({ qr: code }, 'qr');
+  queue.add(async (M = [code]) => {that.PROCESS_MESSAGE(M[0], 'qr')});
+  //that.PROCESS_MESSAGE({ qr: code }, 'qr');
 
   that.QR_CODE = code;
 };

@@ -3,7 +3,7 @@ author                          : Paulo Corcino
 version                         : 2.0.0
 client							: studio
 instance						: 9007
-webhook							: https://webhook.site/065288b8-1cee-4404-8ddf-5cac327df3bb
+webhook							: http://10.0.0.13:8049/studio/gethook.rule?sys=BOT&token=aMxa8RCLOdJElOhlrxGsbA
 masterKey						: aMxa8RCLOdJElOhlrxGsbA
 disableb64						: true
 waversion                       : [2, 2106, 9]

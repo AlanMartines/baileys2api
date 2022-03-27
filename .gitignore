@@ -1,5 +1,8 @@
 node_modules/
 whatsSessions/
+tmp/
+public/
+private/
 .vscode/
 .DS_Store
 receivers.txt

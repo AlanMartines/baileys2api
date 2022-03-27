@@ -1614,7 +1614,7 @@ async function readInstance(masterKey){
 				var connectionState = (isConnected ? 'CONNECTED' : 'OFF-LINE');
 				var wapiversion = WA_VERSION[0] + '.' + WA_VERSION[1] + '.' + WA_VERSION[2] ;				
 				self.json({
-					status: true,
+					status: isConnected,
 					resetState: undefined,
 					networkData: isConnected,
 					mode: 'Multi-Device',

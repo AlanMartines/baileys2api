@@ -1,5 +1,5 @@
 {
-  "pid": 15430,
+  "pid": 44137,
   "stats": [
     {
       "id": null,
@@ -8,12 +8,12 @@
         "total": "3.4.13",
         "app": "2.0.0"
       },
-      "pid": 15430,
+      "pid": 44137,
       "thread": "",
       "mode": "release",
       "overload": 0,
-      "date": "2022-03-20T23:42:07.795Z",
-      "memory": 21.23,
+      "date": "2022-03-27T09:16:55.359Z",
+      "memory": 29.26,
       "rm": 0,
       "fm": 0,
       "wm": 0,
@@ -27,7 +27,7 @@
       "pending": 0,
       "errors": 0,
       "timeouts": 0,
-      "uptime": 15,
+      "uptime": 2,
       "online": 0
     }
   ]
