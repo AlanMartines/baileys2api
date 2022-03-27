@@ -33,6 +33,7 @@ const { default: PQueue } = require("p-queue");
 const crypto = require('crypto');
 const queue = new PQueue({timeout: 30000, throwOnTimeout: false });
 const agents = require('user-agents');
+const { Async } = require('total.js/utils');
 
 global.WA_CONFIG_ENV = process.cwd() + '/whatsSessions/config.env';
 global.WA_CONFIG_STORE = process.cwd() + '/whatsSessions/store.json';
@@ -47,7 +48,7 @@ const userAgent = new agents({ deviceCategory: 'desktop' });
 global.uaOverride = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.74 Safari/537.36' //userAgent.data.userAgent;
 global.WA_CLIENT = {};
 global.WA_STORE = null;
-global.WA_DB = null;
+global.WA_DB = undefined;
 global.WA_SOCKET = null;
 global.WA_BATTERY = 100;
 /*
@@ -123,6 +124,14 @@ function hasSocket(){
 * Personal regards to:
 * Peter Sírka (TotalJS) - 
 */
+
+var WA_STATE = {
+  none: null,
+  qrcode: 'qrcode',
+  connected: 'connected',
+  initiated: 'initiated'
+}
+
 function WHATS_API(USER_ID) {
   console.log("\n====================================================");
   console.log("@@Creating WhatsApp connection for: "+USER_ID);
@@ -133,7 +142,44 @@ function WHATS_API(USER_ID) {
   this.INSTANCE = USER_ID;
   this.CONNECTION = {};
   this.ME = {};
+  this.STATE = WA_STATE.none;
 };
+
+WHATS_API.prototype.GET_STATE = () => {
+  var that = this;
+  return that.STATE;
+} 
+
+WHATS_API.prototype.SET_STATE = (s) => {
+  var that = this;
+  that.STATE = s;
+} 
+
+/* 
+db manager 
+*/
+function WHATS_DB(config) {
+
+  this.ISCONNECTED = false;
+  this.DB = undefined;
+
+  this.CONNECT = async function() {
+    if(!this.ISOPEN) {
+      this.DB = levelup(leveldown(config));
+      this.ISCONNECTED = true;
+    }
+  }
+
+  this.CLOSE = async function() {
+    if(this.ISCONNECTED) {
+      await this.DB.close(function (err){
+        this.DB = undefined;
+        this.ISCONNECTED = false;
+      });  
+    }
+  }
+
+}
 
 /*
 * Sanitizing the type of ack response i want on webhook POST request
@@ -195,7 +241,7 @@ var MESSAGE_TYPE = function(messageType, ptt = false) {
   if(messageType == 'conversation' || messageType == 'extendedTextMessage')
     return 'chat';
 
-  if(messageType.toString() === 'buttonsResponseMessage') 
+  if(messageType == 'buttonsResponseMessage' || messageType == 'buttonsMessage') 
     return 'buttons_response';
 
   if(messageType == 'imageMessage')
@@ -219,8 +265,7 @@ var MESSAGE_TYPE = function(messageType, ptt = false) {
   if(messageType == 'audioMessage')
     return ptt ? 'ptt' : 'audio';
  
-  console.log("new format:" + messageType.toString(), JSON.stringify(msg, undefined, 2));
-  msg = null;
+  console.log("new format:" + messageType.toString());
 
   return messageType.toString();
 }
@@ -292,6 +337,9 @@ WHATS_API.prototype.PROCESS_MESSAGE = async function(data, type){
         break;
     }
 
+    if (DEBUG && type != 'qr')
+        console.log(SANITIZED);
+
   }
   catch(e) {
     if (DEBUG)
@@ -301,18 +349,11 @@ WHATS_API.prototype.PROCESS_MESSAGE = async function(data, type){
     // send websocket if avaible
   if(hasSocket()) {
     try {
-      
-      if (DEBUG && type != 'qr')
-        console.log(SANITIZED);
-
       WA_SOCKET.send(SANITIZED);
-
       return;
-
     } catch(e) {
       console.log(e);
     }
-
   } 
 
   //send post 
@@ -327,10 +368,7 @@ WHATS_API.prototype.PROCESS_MESSAGE = async function(data, type){
     } else {
       if(response.statusCode != 200){
         ERROR_CATCHER("Status Code error: "+response.statusCode,response);
-      } else {
-        if (DEBUG  && type != 'qr')
-          console.log(SANITIZED);
-      }
+      } 
     }
   });
   
@@ -371,6 +409,8 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
         phone: WA_CLIENT.CONVERTOLDUID(that.CONNECTION.user.id).split('@')[0]
       }
 
+      that.SET_STATE(WA_STATE.connected);
+
         //get image whatsapp
         const getMePicture = async () => { 
         
@@ -402,7 +442,7 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
 
     if(!customJid) return;
 
-    await WA_DB.get(customJid, function(err, value) {
+    await WA_DB.DB.get(customJid, function(err, value) {
       if(!err) {
         jidinfo = JSON.parse(value);
       }          
@@ -433,7 +473,7 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
       //check db
       if(!isUpdate) {
 
-        await WA_DB.get(customJid, function(err, value) {
+        await WA_DB.DB.get(customJid, function(err, value) {
           if(!err) {
             jidinfo = JSON.parse(value);
           }          
@@ -480,7 +520,7 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
       //recorder
       if(jidinfo) {
         try {
-           await WA_DB.put(customJid, JSON.stringify(jidinfo, undefined));
+          await WA_DB.DB.put(customJid, JSON.stringify(jidinfo, undefined));
         } catch(e) {
           console.log('Fail when try store contact info', jidinfo, e)
         }
@@ -728,12 +768,16 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
            m.mentionedJid = message.contextInfo.mentionedJid;
            m.quotedMsgId = WA_CLIENT.SETMSGID({ id: message.contextInfo.stanzaId, remoteJid: message.contextInfo.participant, fromMe: (message.contextInfo.participant === m.me)});
           
+           //console.log(mQType, message.selectedButtonId)
            if(mQType == 'chat') {
              m.quotedMsgBody = {
                body: await BODY(mQ, messageTypeQ) 
              };
            } else if (mQType == 'buttons_response') {
-             m.quotedMsgBody = { buttonId: m.message.buttonsResponseMessage.selectedButtonId };
+             m.quotedMsgBody = { 
+               buttonId: message.selectedButtonId, 
+               body: message.selectedDisplayText
+            };
            } else {
              m.quotedMsgBody = { body: mQType };
            }
@@ -956,15 +1000,12 @@ WHATS_API.prototype.SET_QRCODE = async function(code){
 WHATS_API.prototype.KILL = async function() {
   var that = this;
 
-   //close db
-   if(WA_DB) {
-    await WA_DB.close(function (err){
-      WA_DB = null;
-    });  
-  }     
+  //close db
+  WA_DB.CLOSE();     
 
   WA_ISCONNECTED = false;
   WA_CLIENT.CONNECTION = null;
+  that.STATE = WA_STATE.none;
 }
 
 WHATS_API.prototype.CONNECT = function() {
@@ -973,6 +1014,11 @@ WHATS_API.prototype.CONNECT = function() {
   WA_STORE = null;
 
   var connectWA = async function() {   
+
+    //avoid open more that one session
+    if(that.GET_STATE() != WA_STATE.none) return;
+
+    that.SET_STATE(WA_STATE.initiated);
 
     // storage 
     //WA_STORE = makeInMemoryStore({ logger: P({ level: 'silent', stream: 'store' }) });
@@ -1100,16 +1146,11 @@ WHATS_API.prototype.CONNECT = function() {
                   console.log('connection closed due to ', reconnectObj.reson ,', reconnecting ', reconnectObj.reconnect);
 
                   if(reconnectObj.delay > 0)
-                    await delay(reconnectObj.delay);
-                  
-                  //close db
-                  if(WA_DB) {
-                    await WA_DB.close(function (err){
-                      WA_DB = null;
-                    });  
-                  }             
+                    await delay(reconnectObj.delay);      
 
-                  connectWA();
+                  that.SET_STATE(WA_STATE.none);
+                  connectWA(); 
+
               }
 
             } else if(connection === 'open') {
@@ -1119,10 +1160,10 @@ WHATS_API.prototype.CONNECT = function() {
                 qrNotification(true, undefined);
 
                 //db
-                WA_DB = levelup(leveldown(WA_CONFIG_DB));
+                WA_DB.CONNECT();
 
                 //start service
-                WA_CLIENT.SETUP(sock, WA_WEBHOOK, WA_TOKENKEY);
+                that.SETUP(sock, WA_WEBHOOK, WA_TOKENKEY);
 
             } else if (connection == 'connecting') {
               console.log(connection + '...');              
@@ -1130,6 +1171,9 @@ WHATS_API.prototype.CONNECT = function() {
             
             //Send QRCODE
             if(qr) {
+              
+              that.SET_STATE(WA_STATE.qrcode);
+
               console.log('SCAN THE ABOVE QR CODE TO LOGIN!');
         
               const b64 = require('qrcode-base64').drawImg(qr, {
@@ -1139,7 +1183,8 @@ WHATS_API.prototype.CONNECT = function() {
               });
         
               //console.log(b64);
-              WA_CLIENT.SET_QRCODE(b64);
+              that.SET_QRCODE(b64);
+              
             }
   
     });
@@ -1151,11 +1196,13 @@ WHATS_API.prototype.CONNECT = function() {
   
   // strat Baileys
   connectWA();
+ 
 }
 
 module.exports = WHATS_API;
 
 ON('ready', function(){
   WA_CLIENT = new WHATS_API(WA_INSTANCE);
+  WA_DB = new WHATS_DB(WA_CONFIG_DB);
   WA_CLIENT.CONNECT();  
 });
