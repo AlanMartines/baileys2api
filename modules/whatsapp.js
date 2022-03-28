@@ -743,7 +743,7 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
       const messageType = getContentType(m.message);
       if(messageType == 'ignore' && messageType == 'broadcast') return;
 
-      const isPtt = false;
+      let isPtt = false;
 
       //is ptt?
       try {

@@ -187,77 +187,7 @@ function get_mediatype(mime, fileName, caption) {
 		filename: undefined,
 		filepath: undefined,
 		filebuffer: undefined, 
-		opt: undefined,
-		getOut: () => {
-			let v = {}
-
-			switch (format) {
-				case 'video':
-
-					if(filebuffer)
-						v = {
-							video: {
-								url: filepath
-							}
-						}
-					else
-						v = { video: filebuffer	}
-
-					break;
-				case 'gif':
-
-					if(filebuffer)
-						v = {
-							video: {
-								url: filepath
-							},
-							gifPlayback: true
-						}
-					else
-						v = { video: filebuffer, gifPlayback: true }
-
-					break;
-				case 'image':
-
-					if(filebuffer)
-						v = {
-							image: {
-								url: filepath
-							}
-						}
-					else
-						v = { image: filebuffer }
-
-					break;
-				case 'audio':
-
-					if(filebuffer)
-						v = {
-							audio: {
-								url: filepath
-							}
-						}
-					else
-						v = { audio: filebuffer }	
-
-					break;
-				case 'document':
-
-					if(filebuffer)
-						v = {
-							document: {
-								url: filepath
-							}
-						}
-					else
-						v = { document: filebuffer }
-
-					break;
-			}
-
-			return v;
-
-		}
+		opt: undefined
 	}
 
 	const uuid = uuidv4().split('-');
@@ -277,7 +207,7 @@ function get_mediatype(mime, fileName, caption) {
 		out.opt = {
 					mimetype: null, 
 					caption: (caption ? caption : ''), 
-					filename: (fileName ? fileName : undefined)
+					fileName: (fileName ? fileName : undefined)
 				 };
 
 		switch (mime) {
@@ -302,7 +232,7 @@ function get_mediatype(mime, fileName, caption) {
 		out.opt = {
 					mimetype: null, 
 					caption: (caption ? caption : ''), 
-					filename: (fileName ? fileName : undefined)
+					fileName: (fileName ? fileName : undefined)
 				 };
 
 		switch (mime) {
@@ -328,7 +258,7 @@ function get_mediatype(mime, fileName, caption) {
 		out.format = 'audio';
 		out.opt = {
 					mimetype: null, 
-					filename: (fileName ? fileName : undefined)
+					fileName: (fileName ? fileName : undefined)
 				 };
 
 		switch (mime) {
@@ -353,7 +283,7 @@ function get_mediatype(mime, fileName, caption) {
 	out.opt = {
 				mimetype: null, 
 				caption: (caption ? caption : ''), 
-				filename: (fileName ? fileName : undefined)
+				fileName: (fileName ? fileName : undefined)
 	};
 
 	switch (mime) {
@@ -369,7 +299,7 @@ function get_mediatype(mime, fileName, caption) {
 	return out;	
 }
 
-function getWAMessage(text, binObj) {
+function getWAMessage(binObj) {
 	
 		let v = {}
 
@@ -407,15 +337,12 @@ function getWAMessage(text, binObj) {
 						v = {
 							image: {
 								url: binObj.filepath
-							},
-							mimetype: binObj.opt.mimetype,
-							thumbnail: null
+							}
 						}
 					else
 						v = { 	
-							image: binObj.filebuffer, 
-							mimetype: binObj.opt.mimetype,  
-							thumbnail: null
+							image: binObj.filebuffer
+							 
 						}
 
 					break;
@@ -446,9 +373,16 @@ function getWAMessage(text, binObj) {
 			}
 		}
 
-		return v;
+		v.mimetype = binObj.opt.mimetype;
 
-	
+		if(binObj.opt.caption)
+			v.caption = binObj.opt.caption;
+
+		if(binObj.opt.fileName)
+			v.fileName = binObj.opt.fileName;
+		
+
+		return v;	
 }
 
 /* update env */
@@ -709,6 +643,9 @@ function sendPTT(instance){
 function sendFile(instance){
 	var self = this;
 	var BODY = self.body;
+	
+	//console.log(self);
+
 	if(WA_CLIENT){
 		if(WA_CLIENT.TOKEN == decodeURIComponent(self.query['token'])){
 			if (typeof BODY['filename'] !== 'undefined' && typeof BODY['mimetype'] !== 'undefined' && (typeof BODY['base64'] !== 'undefined' || typeof BODY['url'] !== 'undefined')) {
@@ -735,15 +672,15 @@ function sendFile(instance){
 														{ url: out.filepath }, 
 														out.format, 
 														out.opt
-													);*/
+													);
 
 													console.log(processData.chatId,
-														JSON.stringify(getWAMessage(null, out), undefined, 2),
-														out.opt);
+														JSON.stringify(getWAMessage(out), undefined, 2),
+														out.opt);*/
 
 													r = await WA_CLIENT.CONNECTION.sendMessage(
 														processData.chatId, 
-														getWAMessage(null, out),
+														getWAMessage(out),
 														out.opt
 													);
 
@@ -785,16 +722,16 @@ function sendFile(instance){
 												fs.readFileSync(out.filepath), 
 												out.format, 
 												out.opt
-											); */
+											); 
 											out.filebuffer = fs.readFileSync(out.filepath);
 
 											console.log(processData.chatId,
-												JSON.stringify(getWAMessage(null, out), undefined, 2),
-												out.opt);
+												JSON.stringify(getWAMessage(out), undefined, 2),
+												out.opt); */
 
 											r = await WA_CLIENT.CONNECTION.sendMessage(
 												processData.chatId, 
-												getWAMessage(null, out),
+												getWAMessage(out),
 												out.opt
 											);
 
