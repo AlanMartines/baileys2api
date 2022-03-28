@@ -1,5 +1,5 @@
 {
-  "pid": 49152,
+  "pid": 1844,
   "stats": [
     {
       "id": null,
@@ -8,13 +8,13 @@
         "total": "3.4.13",
         "app": "2.0.0"
       },
-      "pid": 49152,
+      "pid": 1844,
       "thread": "",
       "mode": "debug",
       "overload": 0,
-      "date": "2022-03-27T14:14:22.294Z",
-      "memory": 36.67,
-      "rm": 7,
+      "date": "2022-03-28T03:13:29.200Z",
+      "memory": 30.61,
+      "rm": 3,
       "fm": 0,
       "wm": 0,
       "mm": 0,
@@ -23,12 +23,13 @@
       "dbrm": 0,
       "dbwm": 0,
       "usage": 0,
-      "requests": 98,
+      "requests": 3,
       "pending": 0,
-      "errors": 0,
+      "errors": 4,
       "timeouts": 0,
-      "uptime": 13,
-      "online": 0
+      "uptime": 2,
+      "online": 0,
+      "lasterror": "2022-03-28T03:13:23.458Z OpenError: IO error: lock /Users/paulocorcino/somoschat/wapi/baileys/whatsSessions/store.db/LOCK: already held by process\n    at /Users/paulocorcino/somoschat/wapi/baileys/node_modules/levelup/lib/levelup.js:127:23\n    at /Users/paulocorcino/somoschat/wapi/baileys/node_modules/abstract-leveldown/abstract-leveldown.js:41:14\n    at onopen (/Users/paulocorcino/somoschat/wapi/baileys/node_modules/deferred-leveldown/deferred-leveldown.js:49:14)\n    at /Users/paulocorcino/somoschat/wapi/baileys/node_modules/abstract-leveldown/abstract-leveldown.js:41:14"
     }
   ]
 }

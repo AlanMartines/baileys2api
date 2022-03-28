@@ -164,7 +164,7 @@ function WHATS_DB(config) {
   this.DB = undefined;
 
   this.CONNECT = async function() {
-    if(!this.ISOPEN) {
+    if(!this.ISCONNECTED) {
       this.DB = levelup(leveldown(config));
       this.ISCONNECTED = true;
     }
@@ -235,7 +235,7 @@ var SANITIZE_QR = function(instanceID,data){
 var MESSAGE_TYPE = function(messageType, ptt = false) {
 
   //type message to ignore
-  if(messageType == 'senderKeyDistributionMessage')
+  if(messageType == 'senderKeyDistributionMessage' || messageType == 'protocolMessage')
     return 'ignore'
 
   if(messageType == 'conversation' || messageType == 'extendedTextMessage')
@@ -352,7 +352,7 @@ WHATS_API.prototype.PROCESS_MESSAGE = async function(data, type){
       WA_SOCKET.send(SANITIZED);
       return;
     } catch(e) {
-      console.log(e);
+      console.log('Erro Sanitizer', e);
     }
   } 
 
@@ -426,7 +426,7 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
 
           } catch(e) {
             //erro
-            console.log(e);
+            console.log('Erro get Picture', e);
           } finally {
             console.log(this.ME);
           }
@@ -694,7 +694,7 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
 
             fs.writeFile(process.cwd() + '/public/cdn/' + download.thumbnail, messageMedia.jpegThumbnail, function(err) {
               if (err) {
-                return console.log(err);
+                return console.log('Error thumbnail', err);
               }
             });
 
@@ -743,7 +743,16 @@ WHATS_API.prototype.SETUP = function(CLIENT,WEBHOOK_INPUT,TOKEN_INPUT) {
       const messageType = getContentType(m.message);
       if(messageType == 'ignore' && messageType == 'broadcast') return;
 
-      m.type = MESSAGE_TYPE(messageType, (typeof m.message[messageType].ptt !== 'undefined') );
+      const isPtt = false;
+
+      //is ptt?
+      try {
+        isPtt = m.message[messageType].ptt;
+      } catch(e) {
+        isPtt = false;
+      }
+
+      m.type = MESSAGE_TYPE(messageType, isPtt);
       
       //Me
       m.id = WA_CLIENT.SETMSGID(m.key);
